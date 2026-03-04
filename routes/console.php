@@ -9,7 +9,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('zendesk:sync')
-    ->everyTenMinutes()
+    ->everyThreeMinutes()
     ->withoutOverlapping(5)
     ->name('zendesk-sync-tickets');
 
@@ -22,5 +22,5 @@ Schedule::command('zendesk:sync --orgs-only')
     ->name('zendesk-sync-orgs');
 
 Schedule::command('zendesk:process-ai --limit=20')
-    ->everyFiveMinutes()
+    ->everyTenMinutes()
     ->name('zendesk-process-ai');

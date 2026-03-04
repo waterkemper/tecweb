@@ -15,6 +15,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 
 class SyncZendeskTicketsJob implements ShouldQueue
@@ -133,6 +134,9 @@ class SyncZendeskTicketsJob implements ShouldQueue
         }
 
         Log::info('SyncZendeskTicketsJob completed (search by requester)', ['processed' => $totalProcessed]);
+        if ($totalProcessed > 0) {
+            Artisan::call('zendesk:process-ai', ['--limit' => 20]);
+        }
     }
 
     private function syncIncremental(ZendeskClient $client): void
@@ -202,6 +206,9 @@ class SyncZendeskTicketsJob implements ShouldQueue
         }
 
         Log::info('SyncZendeskTicketsJob completed (incremental)', ['processed' => $totalProcessed]);
+        if ($totalProcessed > 0) {
+            Artisan::call('zendesk:process-ai', ['--limit' => 20]);
+        }
     }
 
     /**
