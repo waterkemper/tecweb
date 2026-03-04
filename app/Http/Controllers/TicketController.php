@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Requests\Tickets\ReorderTicketsRequest;
+use App\Http\Requests\Tickets\StoreTicketRequest;
 use App\Http\Requests\Tickets\StoreTicketCommentRequest;
 use App\Http\Requests\Tickets\UpdatePendingActionRequest;
 use App\Http\Requests\Tickets\UpdateStatusRequest;
 use App\Http\Requests\Tickets\UpdateTagsRequest;
 use App\Jobs\FetchTicketCommentsJob;
 use App\Jobs\SummarizeTicketJob;
+use App\Jobs\SyncZendeskTicketsJob;
 use Illuminate\Support\Facades\Bus;
 use App\Models\AiSimilarTicket;
 use App\Models\ZdTicket;
@@ -153,6 +155,94 @@ class TicketController extends Controller
         }
 
         return $query->orderByRaw('COALESCE(zd_updated_at, updated_at) DESC')->paginate(100, ['*'], 'resolved_page')->withQueryString();
+    }
+
+
+    public function create(): View
+    {
+        if (auth()->user()?->role !== 'cliente') {
+            abort(403, 'Apenas clientes podem abrir novos tickets por este portal.');
+        }
+
+        return view('tickets.create');
+    }
+
+    public function store(StoreTicketRequest $request, ZendeskClient $client, TicketCommentService $commentService): RedirectResponse
+    {
+        if ($request->user()?->role !== 'cliente') {
+            abort(403, 'Apenas clientes podem abrir novos tickets por este portal.');
+        }
+
+        $authorId = $request->user()?->zd_id;
+        if ($authorId === null) {
+            return redirect()->route('tickets.create')
+                ->withInput()
+                ->with('error', 'Seu usuário não está vinculado ao Zendesk. Entre em contato com o administrador.');
+        }
+
+        $validated = $request->validated();
+
+        $files = $request->file('attachments', []);
+        if (! is_array($files)) {
+            $files = $files ? [$files] : [];
+        }
+
+        try {
+            $uploadTokens = $commentService->uploadAttachments($files, $client);
+        } catch (\RuntimeException $e) {
+            return redirect()->route('tickets.create')->withInput()->with('error', $e->getMessage());
+        }
+
+        $ticketPayload = [
+            'subject' => trim((string) $validated['subject']),
+            'comment' => [
+                'body' => trim((string) $validated['description']),
+                'public' => true,
+                'author_id' => $authorId,
+            ],
+            'requester_id' => $authorId,
+            'submitter_id' => $authorId,
+        ];
+
+        if (! empty($validated['priority'])) {
+            $ticketPayload['priority'] = $validated['priority'];
+        }
+
+        if (! empty($uploadTokens)) {
+            $ticketPayload['comment']['uploads'] = $uploadTokens;
+        }
+
+        try {
+            $created = $client->createTicket($ticketPayload);
+        } catch (\Throwable $e) {
+            Log::warning('TicketController create ticket failed', [
+                'user_id' => $request->user()?->id,
+                'zd_user_id' => $authorId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->route('tickets.create')
+                ->withInput()
+                ->with('error', 'Não foi possível criar o ticket no Zendesk. Tente novamente em instantes.');
+        }
+
+        $zdTicketId = (int) ($created['id'] ?? 0);
+        if ($zdTicketId <= 0) {
+            return redirect()->route('tickets.index')
+                ->with('success', 'Ticket criado com sucesso! A sincronização ocorrerá em instantes.');
+        }
+
+        SyncZendeskTicketsJob::dispatch(now()->subMinutes(5)->timestamp, true);
+
+        $localTicket = ZdTicket::withoutGlobalScope('not_merged')->where('zd_id', $zdTicketId)->first();
+
+        if ($localTicket) {
+            return redirect()->route('tickets.show', $localTicket)
+                ->with('success', 'Ticket criado com sucesso!');
+        }
+
+        return redirect()->route('tickets.index')
+            ->with('success', 'Ticket criado com sucesso! A sincronização ocorrerá em instantes.');
     }
 
     public function show(Request $request, ZdTicket $ticket): View

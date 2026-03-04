@@ -3,7 +3,12 @@
 @section('title', 'Tickets')
 
 @section('content')
-<h1 class="text-2xl font-bold mb-6">Tickets</h1>
+<div class="flex items-center justify-between gap-3 mb-4">
+    <h1 class="text-2xl font-bold">Tickets</h1>
+    @if (auth()->user()?->role === 'cliente')
+        <a href="{{ route('tickets.create') }}" class="px-3 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700">Novo ticket</a>
+    @endif
+</div>
 <p class="text-sm text-gray-600 mb-4">
     Arraste as linhas para ordenar os tickets (quais fazer primeiro). Use <a href="{{ route('tickets.index', array_merge($filters, ['sort' => 'sequence', 'dir' => 'asc'])) }}" class="text-blue-600 hover:underline">Ordenar por sequência</a> para ativar.
 </p>

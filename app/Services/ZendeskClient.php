@@ -493,6 +493,18 @@ class ZendeskClient
         $this->updateTicket($zdTicketId, $data);
     }
 
+
+    /**
+     * Create a new ticket.
+     */
+    public function createTicket(array $data): array
+    {
+        $url = $this->baseUrl . '/tickets.json';
+        $response = $this->request('post', $url, ['ticket' => $data]);
+
+        return $response['ticket'] ?? [];
+    }
+
     /**
      * Update ticket fields (status, comment, assignee_id, etc.).
      */
