@@ -16,7 +16,7 @@ cp .env.example .env
 php artisan key:generate  # ou defina APP_KEY no .env
 
 docker compose -f docker-compose.prod.yml up -d --build
-# App em http://localhost:8080
+# App em http://localhost:8081
 ```
 
 PostgreSQL (porta 5437) e Redis (porta 6379) devem estar rodando no host. No Windows/Mac, `host.docker.internal` funciona nativamente; no Linux, o `docker-compose.prod.yml` já inclui `extra_hosts`.
@@ -109,7 +109,9 @@ O `.env` do host é montado no container; a chave gerada será salva no seu `.en
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Isso sobe apenas **app** (porta 8080). PostgreSQL e Redis são do host.
+Isso sobe apenas **app** (porta 8081). PostgreSQL e Redis são do host.
+
+**Conflito de porta:** Se 8081 também estiver em uso, altere no `docker-compose.prod.yml` (ex.: `"8082:80"`) e no VirtualHost do Apache (`ProxyPass` e `ProxyPassReverse`).
 
 ---
 
@@ -130,37 +132,54 @@ docker compose -f docker-compose.prod.yml exec app php artisan zendesk:sync-user
 
 ---
 
-## 5. Apache – VirtualHost e SSL
+## 5. Apache (httpd) – VirtualHost e SSL
+
+> **Amazon Linux 2** usa `httpd` (não apache2). Caminhos e comandos abaixo são para essa distro.
 
 ### 5.1 Habilitar módulos de proxy
 
+No Amazon Linux 2, os módulos `proxy` e `proxy_http` costumam vir habilitados. Verifique:
+
 ```bash
-sudo a2enmod proxy proxy_http proxy_wstunnel headers ssl
-sudo systemctl reload apache2
+httpd -M | grep proxy
+```
+
+Se não aparecer `proxy_module` ou `proxy_http_module`, descomente as linhas em `/etc/httpd/conf.modules.d/00-base.conf` ou crie `/etc/httpd/conf.modules.d/01-proxy.conf` com:
+
+```apache
+LoadModule proxy_module modules/mod_proxy.so
+LoadModule proxy_http_module modules/mod_proxy_http.so
+```
+
+Depois:
+
+```bash
+sudo systemctl reload httpd
 ```
 
 ### 5.2 Criar VirtualHost
 
-Crie o arquivo de configuração (ex.: `/etc/apache2/sites-available/tecdesk.iteclux.com.br.conf`):
+Crie o arquivo em `/etc/httpd/conf.d/tecdesk.iteclux.com.br.conf`:
 
 ```apache
 <VirtualHost *:80>
     ServerName tecdesk.iteclux.com.br
 
     ProxyPreserveHost On
-    ProxyPass / http://127.0.0.1:8080/
-    ProxyPassReverse / http://127.0.0.1:8080/
+    ProxyPass / http://127.0.0.1:8081/
+    ProxyPassReverse / http://127.0.0.1:8081/
 
-    ErrorLog ${APACHE_LOG_DIR}/tecdesk-error.log
-    CustomLog ${APACHE_LOG_DIR}/tecdesk-access.log combined
+    ErrorLog /var/log/httpd/tecdesk-error.log
+    CustomLog /var/log/httpd/tecdesk-access.log combined
 </VirtualHost>
 ```
 
-### 5.3 Ativar o site
+### 5.3 Recarregar o httpd
+
+Arquivos em `/etc/httpd/conf.d/` são carregados automaticamente. Recarregue:
 
 ```bash
-sudo a2ensite tecdesk.iteclux.com.br.conf
-sudo systemctl reload apache2
+sudo systemctl reload httpd
 ```
 
 ### 5.4 SSL com Let's Encrypt
@@ -202,7 +221,7 @@ docker compose -f docker-compose.prod.yml exec app php artisan migrate --force
 ```
 Internet (HTTPS)
     → Apache (80/443)
-    → ProxyPass → localhost:8080
+    → ProxyPass → localhost:8081
     → Container tecdesk-app (Nginx + PHP-FPM)
     → Laravel
 ```
