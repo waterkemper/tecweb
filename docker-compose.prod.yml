@@ -49,7 +49,7 @@ services:
     image: redis:7-alpine
     container_name: tecdesk-redis
     restart: unless-stopped
-    # Porta não exposta - app conecta via rede interna (redis:6379)
+    # Sem ports - app conecta via rede interna (redis:6379); evita conflito com Redis no host
     volumes:
       - redis_data:/data
     networks:
