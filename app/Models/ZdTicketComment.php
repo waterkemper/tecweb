@@ -36,4 +36,9 @@ class ZdTicketComment extends Model
     {
         return $this->belongsTo(ZdTicket::class, 'ticket_id');
     }
+
+    public function author(): BelongsTo
+    {
+        return $this->belongsTo(ZdUser::class, 'author_id', 'zd_id');
+    }
 }

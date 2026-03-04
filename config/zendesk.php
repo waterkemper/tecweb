@@ -52,6 +52,7 @@ return [
     */
 
     'filter_requester_emails' => array_filter(array_map('trim', explode(',', env('ZENDESK_FILTER_REQUESTER_EMAILS', '')))),
+    'filter_requester_zd_ids' => array_filter(array_map('intval', explode(',', env('ZENDESK_FILTER_REQUESTER_ZD_IDS', '')))),
     'exclude_statuses' => array_filter(array_map('trim', explode(',', env('ZENDESK_EXCLUDE_STATUSES', 'closed')))),
 
     /*

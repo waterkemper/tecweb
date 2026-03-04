@@ -42,7 +42,7 @@ class ClassifyTicketJob implements ShouldQueue
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => 'You classify support tickets. Return ALL text content in Brazilian Portuguese (pt-BR): categories (array, e.g. bug, feature, suporte, faturamento, integracao, acesso, performance, outro), modules (array, e.g. ERP, checkout, pagamento, catalogo, API), severity (critical|high|medium|low), urgency (now|soon|whenever), requires_dev (boolean), suggested_tags (array of strings in Portuguese).',
+                        'content' => 'You classify support tickets. Return ALL text content in Brazilian Portuguese (pt-BR). Return ONLY valid JSON with: categories (array, e.g. bug, feature, suporte, faturamento, integracao, acesso, performance, outro), modules (array, e.g. ERP, checkout, pagamento, catalogo, API), severity (critical|high|medium|low), urgency (now|soon|whenever), requires_dev (boolean), suggested_tags (array of strings in Portuguese).',
                     ],
                     [
                         'role' => 'user',

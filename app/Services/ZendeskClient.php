@@ -134,6 +134,62 @@ class ZendeskClient
     }
 
     /**
+     * Search tickets by requester (email or Zendesk user ID) via Search API.
+     * Yields full ticket objects (fetched via getTicket for complete data).
+     * Max 1000 results per query (Search API limit).
+     *
+     * @param string|int $emailOrId Requester email or Zendesk user ID
+     * @return \Generator<array> Full ticket objects
+     */
+    public function searchTicketsByRequester(string|int $emailOrId): \Generator
+    {
+        $value = is_int($emailOrId) ? (string) $emailOrId : trim((string) $emailOrId);
+        if ($value === '') {
+            return;
+        }
+        $requesterTerm = is_int($emailOrId) ? $value : $value;
+        $query = 'type:ticket requester:' . $requesterTerm;
+        $url = $this->baseUrl . '/search.json';
+        $page = null;
+        $maxPages = 10;
+
+        for ($pages = 0; $pages < $maxPages; $pages++) {
+            if ($page !== null) {
+                $reqUrl = $page;
+                $data = $this->request('get', $reqUrl);
+            } else {
+                $data = $this->request('get', $url, [
+                    'query' => $query,
+                    'sort_by' => 'updated_at',
+                    'sort_order' => 'desc',
+                ]);
+            }
+            $results = $data['results'] ?? [];
+            foreach ($results as $r) {
+                if (($r['result_type'] ?? '') !== 'ticket') {
+                    continue;
+                }
+                $ticketId = $r['id'] ?? null;
+                if ($ticketId === null) {
+                    continue;
+                }
+                try {
+                    $full = $this->getTicket((int) $ticketId);
+                    if ($full !== null) {
+                        yield $full;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('ZendeskClient: falha ao buscar ticket', ['id' => $ticketId, 'error' => $e->getMessage()]);
+                }
+            }
+            $page = $data['next_page'] ?? null;
+            if ($page === null || count($results) < 100) {
+                break;
+            }
+        }
+    }
+
+    /**
      * Get single ticket.
      */
     public function getTicket(int $ticketId): ?array
@@ -167,12 +223,171 @@ class ZendeskClient
     public function getUsersListPage(?string $nextUrl = null): array
     {
         $url = $nextUrl ?? $this->baseUrl . '/users.json?page[size]=100';
+
         $data = $this->request('get', $url);
+        $hasMore = $data['meta']['has_more'] ?? false;
+        $nextCursor = $data['meta']['after_cursor'] ?? null;
+        $nextPage = $data['links']['next'] ?? $data['next_page'] ?? null;
+
+        if ($hasMore && $nextPage === null && $nextCursor !== null) {
+            $nextPage = $this->baseUrl . '/users.json?page[size]=100&page[after]=' . rawurlencode($nextCursor);
+        }
+
+        if ($hasMore && $nextPage === null) {
+            Log::warning('ZendeskClient: has_more=true mas next_page ausente', [
+                'links' => $data['links'] ?? null,
+                'meta' => $data['meta'] ?? null,
+            ]);
+        }
+
         return [
             'users' => $data['users'] ?? [],
-            'next_page' => $data['links']['next'] ?? null,
-            'end_of_stream' => ! ($data['meta']['has_more'] ?? false),
+            'next_page' => $nextPage,
+            'end_of_stream' => ! $hasMore,
         ];
+    }
+
+    /**
+     * Search users by email. Tries org members first (when domain matches), then General Search, then Users Search.
+     */
+    public function searchUsersByEmail(string $email): array
+    {
+        $emailLower = strtolower(trim($email));
+        $domain = substr(strrchr($email, '@'), 1);
+        if ($domain) {
+            $users = $this->searchUsersByOrganizationDomain($domain, $emailLower);
+            if (! empty($users)) {
+                return $users;
+            }
+        }
+
+        $url = $this->baseUrl . '/search.json?query=' . rawurlencode('type:user email:' . $email);
+        try {
+            $all = [];
+            $page = null;
+            $maxPages = 10;
+            $pages = 0;
+            do {
+                $reqUrl = $page ?? $url;
+                $data = $this->request('get', $reqUrl);
+                $results = $data['results'] ?? [];
+                foreach ($results as $r) {
+                    if (($r['result_type'] ?? '') === 'user') {
+                        $all[] = $r;
+                    }
+                }
+                foreach ($all as $u) {
+                    $e = $u['email'] ?? null;
+                    if ($e !== null && strtolower(trim($e)) === $emailLower) {
+                        $full = $this->getUserById($u['id'] ?? 0);
+                        return $full ? [$full] : [$u];
+                    }
+                }
+                $page = $data['next_page'] ?? null;
+                $pages++;
+            } while ($page && $pages < $maxPages);
+        } catch (\Throwable $e) {
+            Log::debug('ZendeskClient: search type:user falhou', ['error' => $e->getMessage()]);
+        }
+
+        $url = $this->baseUrl . '/users/search.json?query=' . rawurlencode($email);
+        try {
+            $all = [];
+            $nextUrl = null;
+            $maxPages = 15;
+            $pages = 0;
+            do {
+                $reqUrl = $nextUrl ?? $url;
+                $data = $this->request('get', $reqUrl);
+                $users = $data['users'] ?? [];
+                $all = array_merge($all, $users);
+                foreach ($all as $u) {
+                    $e = $u['email'] ?? null;
+                    if ($e !== null && strtolower(trim($e)) === $emailLower) {
+                        $full = $this->getUserById($u['id'] ?? 0);
+                        return $full ? [$full] : [$u];
+                    }
+                }
+                $nextUrl = $data['next_page'] ?? $data['links']['next'] ?? null;
+                $pages++;
+            } while ($nextUrl && count($users) >= 100 && $pages < $maxPages);
+        } catch (\Throwable $e) {
+            Log::debug('ZendeskClient: users/search falhou', ['error' => $e->getMessage()]);
+        }
+
+        return [];
+    }
+
+    /**
+     * Get users from organizations matching domain, filter by exact email.
+     */
+    private function searchUsersByOrganizationDomain(string $domain, string $emailLower): array
+    {
+        $orgs = \App\Models\ZdOrg::where(function ($q) use ($domain) {
+            $q->whereRaw('LOWER(domain_names::text) LIKE ?', ['%' . strtolower($domain) . '%'])
+                ->orWhereRaw('LOWER(name) LIKE ?', ['%' . str_replace('.com.br', '', $domain) . '%']);
+        })->limit(5)->get();
+
+        foreach ($orgs as $org) {
+            try {
+                $url = $this->baseUrl . '/organizations/' . $org->zd_id . '/organization_memberships.json?include=users&page[size]=100';
+                $all = [];
+                $nextUrl = null;
+                do {
+                    $reqUrl = $nextUrl ?? $url;
+                    $data = $this->request('get', $reqUrl);
+                    $memberships = $data['organization_memberships'] ?? [];
+                    $users = $data['users'] ?? [];
+                    foreach ($users as $u) {
+                        $e = $u['email'] ?? null;
+                        if ($e !== null && strtolower(trim($e)) === $emailLower) {
+                            $full = $this->getUserById($u['id'] ?? 0);
+                            return $full ? [$full] : [$u];
+                        }
+                    }
+                    $nextUrl = $data['links']['next'] ?? $data['meta']['after_cursor'] ?? null;
+                    if ($nextUrl && ! str_starts_with((string) $nextUrl, 'http')) {
+                        $nextUrl = $this->baseUrl . '/organizations/' . $org->zd_id . '/organization_memberships.json?include=users&page[size]=100&page[after]=' . rawurlencode($nextUrl);
+                    }
+                } while ($nextUrl);
+            } catch (\Throwable $e) {
+                Log::debug('ZendeskClient: org members falhou', ['org' => $org->zd_id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Get full user object by ID (for processUsers compatibility).
+     */
+    public function getUserById(int $userId): ?array
+    {
+        if ($userId <= 0) {
+            return null;
+        }
+        try {
+            $data = $this->request('get', $this->baseUrl . "/users/{$userId}.json");
+            return $data['user'] ?? null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get organization by ID (for on-the-fly creation when processing tickets).
+     */
+    public function getOrganizationById(int $orgId): ?array
+    {
+        if ($orgId <= 0) {
+            return null;
+        }
+        try {
+            $data = $this->request('get', $this->baseUrl . "/organizations/{$orgId}.json");
+            return $data['organization'] ?? null;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**
@@ -216,6 +431,70 @@ class ZendeskClient
         $url = $this->baseUrl . '/users/me.json';
         $this->request('get', $url);
         return true;
+    }
+
+    /**
+     * Upload a file to Zendesk. Returns the upload token for attaching to a comment.
+     * Max 50 MB per file.
+     */
+    public function uploadFile(string $filename, string $content, string $contentType): ?string
+    {
+        $this->throttle();
+
+        $url = $this->baseUrl . '/uploads.json?filename=' . rawurlencode($filename);
+
+        $client = Http::withBasicAuth(
+            config('zendesk.email') . '/token',
+            config('zendesk.api_token')
+        )
+            ->acceptJson()
+            ->withBody($content, $contentType)
+            ->timeout(120);
+
+        if (! config('zendesk.ssl_verify', true)) {
+            $client = $client->withOptions(['verify' => false]);
+        }
+
+        $response = $client->post($url);
+
+        if (! $response->successful()) {
+            Log::warning('ZendeskClient: upload failed', [
+                'filename' => $filename,
+                'status' => $response->status(),
+            ]);
+            return null;
+        }
+
+        $data = $response->json();
+        return $data['upload']['token'] ?? null;
+    }
+
+    /**
+     * Add a comment to a ticket. Optionally include upload tokens from uploadFile().
+     */
+    public function addTicketComment(int $zdTicketId, string $body, bool $public = true, array $uploadTokens = [], ?int $authorId = null): void
+    {
+        $comment = [
+            'body' => $body,
+            'public' => $public,
+        ];
+        if (! empty($uploadTokens)) {
+            $comment['uploads'] = $uploadTokens;
+        }
+        if ($authorId !== null) {
+            $comment['author_id'] = $authorId;
+        }
+
+        $this->updateTicket($zdTicketId, ['comment' => $comment]);
+    }
+
+    /**
+     * Update ticket fields (status, comment, assignee_id, etc.).
+     */
+    public function updateTicket(int $zdTicketId, array $data): void
+    {
+        $url = $this->baseUrl . "/tickets/{$zdTicketId}.json";
+        $this->request('put', $url, ['ticket' => $data]);
     }
 
     /**

@@ -1,0 +1,19 @@
+# Development override: mount source for live reload
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Run `npm run build` on host first for assets.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/var/www/html
+      - tecdesk_vendor:/var/www/html/vendor
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost:8080
+
+volumes:
+  tecdesk_vendor:

@@ -29,13 +29,13 @@ class SyncZendeskCommand extends Command
             $years = config('zendesk.initial_backfill_years', 2);
             $startTime = time() - ($years * 365 * 24 * 60 * 60);
             $filterEmails = config('zendesk.filter_requester_emails', []);
-            if (! empty($filterEmails)) {
+            $filterZdIds = config('zendesk.filter_requester_zd_ids', []);
+            if (! empty($filterEmails) || ! empty($filterZdIds)) {
                 Bus::chain([
-                    new SyncZendeskUsersJob($startTime),
                     new SyncZendeskOrgsJob($startTime),
                     new SyncZendeskTicketsJob($startTime, true),
                 ])->dispatch();
-                $this->info('Dispatched full sync (users first, then orgs, then tickets).');
+                $this->info('Dispatched full orgs → tickets (busca por requester).');
             } else {
                 SyncZendeskTicketsJob::dispatch($startTime, true);
                 SyncZendeskUsersJob::dispatch($startTime);
@@ -72,10 +72,20 @@ class SyncZendeskCommand extends Command
             return self::SUCCESS;
         }
 
-        SyncZendeskTicketsJob::dispatch();
-        SyncZendeskUsersJob::dispatch();
-        SyncZendeskOrgsJob::dispatch();
-        $this->info('Dispatched incremental sync jobs.');
+        $filterEmails = config('zendesk.filter_requester_emails', []);
+        $filterZdIds = config('zendesk.filter_requester_zd_ids', []);
+        if (! empty($filterEmails) || ! empty($filterZdIds)) {
+            Bus::chain([
+                new SyncZendeskOrgsJob(),
+                new SyncZendeskTicketsJob(),
+            ])->dispatch();
+            $this->info('Dispatched orgs → tickets (busca por requester). Emails são resolvidos para ID antes da busca.');
+        } else {
+            SyncZendeskTicketsJob::dispatch();
+            SyncZendeskUsersJob::dispatch();
+            SyncZendeskOrgsJob::dispatch();
+            $this->info('Dispatched incremental sync jobs.');
+        }
         return self::SUCCESS;
     }
 }

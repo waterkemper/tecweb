@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'Login') - tecWEB</title>
+    <title>@yield('title', 'Login') - tecDESK</title>
     @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     @endif
@@ -145,6 +145,25 @@
             background: #fef2f2;
             border: 1px solid #fecaca;
             color: #991b1b;
+        }
+        .login-link {
+            display: block;
+            text-align: center;
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: #6366f1;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .login-link:hover {
+            color: #4f46e5;
+            text-decoration: underline;
+        }
+        .login-text {
+            color: #64748b;
+            font-size: 0.9375rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
         }
     </style>
 </head>

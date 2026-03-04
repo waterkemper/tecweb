@@ -41,6 +41,7 @@ class AiTicketAnalysis extends Model
         'suggested_tags',
         'suggested_owner',
         'last_ai_refresh_at',
+        'content_hash',
     ];
 
     protected $casts = [

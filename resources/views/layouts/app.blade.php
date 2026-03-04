@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'tecWEB') - {{ config('app.name') }}</title>
+    <title>@yield('title', 'tecDESK') - {{ config('app.name') }}</title>
     @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     @else
@@ -41,11 +41,11 @@
     <div class="container">
         <nav class="flex items-center justify-between">
             <div class="flex items-center gap-8">
-                <a href="{{ route('dashboard') }}" class="font-semibold text-slate-800">tecWEB</a>
+                <a href="{{ route('dashboard') }}" class="font-semibold text-slate-800">tecDESK</a>
                 <a href="{{ route('dashboard') }}" class="text-slate-600 hover:text-slate-900">Dashboard</a>
                 <a href="{{ route('tickets.index') }}" class="text-slate-600 hover:text-slate-900">Tickets</a>
-                @if (auth()->user()?->role === 'admin' || auth()->user()?->role === 'colaborador')
-                    <a href="{{ route('settings.index') }}" class="text-slate-600 hover:text-slate-900">Settings</a>
+                @if (auth()->user()?->isAdmin())
+                    <a href="{{ route('admin.organizations.index') }}" class="text-slate-600 hover:text-slate-900">Admin</a>
                 @endif
             </div>
             <div class="flex items-center gap-4">

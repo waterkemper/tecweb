@@ -11,7 +11,7 @@ class TicketOrder extends Model
 {
     protected $table = 'ticket_order';
 
-    protected $fillable = ['ticket_id', 'sequence'];
+    protected $fillable = ['ticket_id', 'requester_id', 'sequence'];
 
     protected $casts = [
         'sequence' => 'integer',

@@ -4,7 +4,7 @@
 
 @section('content')
 <div class="login-card">
-    <h1 class="login-brand">tecWEB</h1>
+    <h1 class="login-brand">tecDESK</h1>
     <p class="login-subtitle">Acesse sua conta</p>
 
     @if (session('status'))
@@ -40,6 +40,8 @@
         </div>
 
         <button type="submit" class="login-btn">Entrar</button>
+
+        <a href="{{ route('password.request') }}" class="login-link">Esqueci minha senha</a>
     </form>
 </div>
 @endsection

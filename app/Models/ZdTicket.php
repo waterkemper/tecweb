@@ -152,6 +152,27 @@ class ZdTicket extends Model
     }
 
     /**
+     * Content string used for content_hash (subject + description + comments).
+     * Same format as SummarizeTicketJob to ensure consistent hashing.
+     */
+    public function contentForHash(): string
+    {
+        $parts = [
+            "Subject: {$this->subject}",
+            "Description: {$this->description}",
+        ];
+        $requesterId = $this->requester_id;
+        foreach ($this->comments()->orderBy('created_at')->get() as $c) {
+            $author = $c->is_public
+                ? ($c->author_id === $requesterId ? '[Customer]' : '[Agent]')
+                : '[Agent - Internal]';
+            $parts[] = "{$author} {$c->created_at}: {$c->body}";
+        }
+
+        return implode("\n\n", $parts);
+    }
+
+    /**
      * Days since last Zendesk update (for open tickets).
      */
     public function getDaysSinceUpdateAttribute(): ?int
@@ -197,9 +218,14 @@ class ZdTicket extends Model
         return $assigneeId ? $query->where('assignee_id', $assigneeId) : $query;
     }
 
-    public function scopeFilterOrg($query, ?int $orgId)
+    public function scopeFilterOrg($query, $orgId)
     {
-        return $orgId ? $query->where('org_id', $orgId) : $query;
+        return $orgId ? $query->where('org_id', (int) $orgId) : $query;
+    }
+
+    public function scopeFilterRequester($query, $requesterId)
+    {
+        return $requesterId ? $query->where('zd_tickets.requester_id', (int) $requesterId) : $query;
     }
 
     public function scopeFilterGroup($query, ?int $groupId)
@@ -212,13 +238,39 @@ class ZdTicket extends Model
         $dateColumn = $column === 'zd_created_at'
             ? DB::raw('COALESCE(zd_created_at, created_at)')
             : $column;
-        if ($from) {
-            $query->whereDate($dateColumn, '>=', $from);
+        $fromDate = self::parseDateInput($from);
+        $toDate = self::parseDateInput($to);
+        if ($fromDate) {
+            $query->whereDate($dateColumn, '>=', $fromDate);
         }
-        if ($to) {
-            $query->whereDate($dateColumn, '<=', $to);
+        if ($toDate) {
+            $query->whereDate($dateColumn, '<=', $toDate);
         }
         return $query;
+    }
+
+    /** Parse dd/mm/yy, dd/mm/yyyy or Y-m-d to Y-m-d. */
+    public static function parseDateInput(?string $value): ?string
+    {
+        if (! $value || ! is_string($value)) {
+            return null;
+        }
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return $value;
+        }
+        if (preg_match('/^\d{1,2}\/\d{1,2}\/\d{2,4}$/', $value)) {
+            $d = \Carbon\Carbon::createFromFormat('d/m/y', $value);
+            if ($d !== false) {
+                return $d->format('Y-m-d');
+            }
+            $d = \Carbon\Carbon::createFromFormat('d/m/Y', $value);
+            return $d !== false ? $d->format('Y-m-d') : null;
+        }
+        return null;
     }
 
     public function scopeFilterTag($query, ?string $tag)
@@ -242,12 +294,17 @@ class ZdTicket extends Model
 
     /**
      * Scope tickets visible to the given user.
-     * Admin and colaborador see all tickets; cliente sees only requester/submitter/collaborator.
+     * Admin and colaborador see all tickets; gerente (can_view_org_tickets) sees org tickets; cliente sees only requester/submitter/collaborator.
      */
     public function scopeVisibleToUser(Builder $query, User $user): Builder
     {
         if (in_array($user->role, ['admin', 'colaborador'])) {
             return $query;
+        }
+
+        $orgId = $user->zdUser?->org_id;
+        if ($user->can_view_org_tickets && $orgId !== null) {
+            return $query->where('zd_tickets.org_id', $orgId);
         }
 
         $zdId = $user->zd_id;
@@ -256,9 +313,9 @@ class ZdTicket extends Model
         }
 
         return $query->where(function (Builder $q) use ($zdId) {
-            $q->where('requester_id', $zdId)
-                ->orWhere('submitter_id', $zdId)
-                ->orWhereRaw('(collaborator_ids::jsonb) @> ?::jsonb', [json_encode([$zdId])]);
+            $q->where('zd_tickets.requester_id', $zdId)
+                ->orWhere('zd_tickets.submitter_id', $zdId)
+                ->orWhereRaw('(zd_tickets.collaborator_ids::jsonb) @> ?::jsonb', [json_encode([$zdId])]);
         });
     }
 
@@ -279,12 +336,14 @@ class ZdTicket extends Model
     }
 
     /**
-     * Order by user-defined sequence (which tickets to do first).
+     * Order by requester, then by user-defined sequence within each requester.
      */
     public function scopeOrderBySequence($query, string $direction = 'asc')
     {
+        $seqDir = $direction === 'desc' ? 'DESC' : 'ASC';
         return $query->leftJoin('ticket_order', 'zd_tickets.id', '=', 'ticket_order.ticket_id')
-            ->orderByRaw('COALESCE(ticket_order.sequence, 999999) ' . ($direction === 'desc' ? 'DESC' : 'ASC'))
+            ->orderByRaw('COALESCE(zd_tickets.requester_id, 0) ' . $seqDir)
+            ->orderByRaw('COALESCE(ticket_order.sequence, 999999) ' . $seqDir)
             ->orderByRaw('COALESCE(zd_tickets.zd_updated_at, zd_tickets.updated_at) DESC')
             ->select('zd_tickets.*');
     }

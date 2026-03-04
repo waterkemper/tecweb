@@ -11,49 +11,80 @@
 @php
     $sortUrl = fn ($col) => route('tickets.index', array_merge($filters, ['sort' => $col, 'dir' => ($sort ?? '') === $col && ($dir ?? 'desc') === 'asc' ? 'desc' : 'asc']));
     $sortIcon = fn ($col) => ($sort ?? '') === $col ? (($dir ?? 'desc') === 'asc' ? ' ↑' : ' ↓') : '';
+    $statusLabels = ['new' => 'Novo', 'open' => 'Aberto', 'pending' => 'Pendente', 'hold' => 'Aguardando', 'solved' => 'Resolvido', 'closed' => 'Fechado'];
+    $priorityLabels = ['urgent' => 'Urgente', 'high' => 'Alta', 'normal' => 'Normal', 'low' => 'Baixa'];
+    $severityLabels = ['high' => 'Alta', 'medium' => 'Média', 'low' => 'Baixa'];
+    $pendingLabels = ['our_side' => 'Nós', 'customer_side' => 'Cliente', 'can_close' => 'Fechar'];
+    $ageLabels = ['too_old' => 'Muito antigo', 'old' => 'Antigo', 'recent' => 'recente', 'fresh' => 'Recente'];
 @endphp
-<form method="GET" class="mb-6 flex flex-wrap gap-4 items-end">
+<form method="GET" class="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
     @if (!empty($sort))
         <input type="hidden" name="sort" value="{{ $sort }}">
     @endif
     @if (!empty($dir))
         <input type="hidden" name="dir" value="{{ $dir }}">
     @endif
-    <div>
-        <label class="block text-sm text-gray-600 mb-1">Search</label>
-        <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Subject, description..." class="w-64">
+    <div class="flex flex-wrap gap-x-5 gap-y-3 items-end">
+        <div class="flex-shrink-0">
+            <label class="block text-sm font-medium text-slate-600 mb-1">Buscar</label>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Assunto, descrição..." class="w-56 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+        <div class="flex-shrink-0">
+            <label class="block text-sm font-medium text-slate-600 mb-1">Status</label>
+            <select name="status" class="w-36 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">Todos</option>
+                <option value="new" {{ ($filters['status'] ?? '') === 'new' ? 'selected' : '' }}>Novo</option>
+                <option value="open" {{ ($filters['status'] ?? '') === 'open' ? 'selected' : '' }}>Aberto</option>
+                <option value="pending" {{ ($filters['status'] ?? '') === 'pending' ? 'selected' : '' }}>Pendente</option>
+                <option value="hold" {{ ($filters['status'] ?? '') === 'hold' ? 'selected' : '' }}>Aguardando</option>
+                <option value="solved" {{ ($filters['status'] ?? '') === 'solved' ? 'selected' : '' }}>Resolvido</option>
+                <option value="closed" {{ ($filters['status'] ?? '') === 'closed' ? 'selected' : '' }}>Fechado</option>
+            </select>
+        </div>
+        @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+        <div class="flex-shrink-0">
+            <label class="block text-sm font-medium text-slate-600 mb-1">Organização</label>
+            <select name="org" class="w-44 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">Todas</option>
+                @foreach ($organizations ?? [] as $org)
+                    <option value="{{ $org->zd_id }}" {{ ($filters['org'] ?? '') == $org->zd_id ? 'selected' : '' }}>{{ $org->name }}</option>
+                @endforeach
+            </select>
+        </div>
+        @endif
+        @if (auth()->user() && ($requesters ?? collect())->isNotEmpty())
+        <div class="flex-shrink-0">
+            <label class="block text-sm font-medium text-slate-600 mb-1">Solicitante</label>
+            <select name="requester" class="w-44 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">Todos</option>
+                @foreach ($requesters ?? [] as $req)
+                    <option value="{{ $req->zd_id }}" {{ ($filters['requester'] ?? '') == $req->zd_id ? 'selected' : '' }}>{{ $req->name ?? $req->email ?? "#{$req->zd_id}" }}</option>
+                @endforeach
+            </select>
+        </div>
+        @endif
+        <div class="flex-shrink-0">
+            <label class="block text-sm font-medium text-slate-600 mb-1">Prioridade</label>
+            <select name="priority" class="w-32 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">Todos</option>
+                <option value="urgent" {{ ($filters['priority'] ?? '') === 'urgent' ? 'selected' : '' }}>Urgente</option>
+                <option value="high" {{ ($filters['priority'] ?? '') === 'high' ? 'selected' : '' }}>Alta</option>
+                <option value="normal" {{ ($filters['priority'] ?? '') === 'normal' ? 'selected' : '' }}>Normal</option>
+                <option value="low" {{ ($filters['priority'] ?? '') === 'low' ? 'selected' : '' }}>Baixa</option>
+            </select>
+        </div>
+        <div class="flex-shrink-0 flex items-end gap-1">
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">De</label>
+                <input type="date" name="from" value="{{ $filters['from'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Até</label>
+                <input type="date" name="to" value="{{ $filters['to'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm">Filtrar</button>
     </div>
-    <div>
-        <label class="block text-sm text-gray-600 mb-1">Status</label>
-        <select name="status">
-            <option value="">All</option>
-            <option value="new" {{ ($filters['status'] ?? '') === 'new' ? 'selected' : '' }}>New</option>
-            <option value="open" {{ ($filters['status'] ?? '') === 'open' ? 'selected' : '' }}>Open</option>
-            <option value="pending" {{ ($filters['status'] ?? '') === 'pending' ? 'selected' : '' }}>Pending</option>
-            <option value="hold" {{ ($filters['status'] ?? '') === 'hold' ? 'selected' : '' }}>Hold</option>
-            <option value="solved" {{ ($filters['status'] ?? '') === 'solved' ? 'selected' : '' }}>Solved</option>
-            <option value="closed" {{ ($filters['status'] ?? '') === 'closed' ? 'selected' : '' }}>Closed</option>
-        </select>
-    </div>
-    <div>
-        <label class="block text-sm text-gray-600 mb-1">Priority</label>
-        <select name="priority">
-            <option value="">All</option>
-            <option value="urgent" {{ ($filters['priority'] ?? '') === 'urgent' ? 'selected' : '' }}>Urgent</option>
-            <option value="high" {{ ($filters['priority'] ?? '') === 'high' ? 'selected' : '' }}>High</option>
-            <option value="normal" {{ ($filters['priority'] ?? '') === 'normal' ? 'selected' : '' }}>Normal</option>
-            <option value="low" {{ ($filters['priority'] ?? '') === 'low' ? 'selected' : '' }}>Low</option>
-        </select>
-    </div>
-    <div>
-        <label class="block text-sm text-gray-600 mb-1">From</label>
-        <input type="date" name="from" value="{{ $filters['from'] ?? '' }}">
-    </div>
-    <div>
-        <label class="block text-sm text-gray-600 mb-1">To</label>
-        <input type="date" name="to" value="{{ $filters['to'] ?? '' }}">
-    </div>
-    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Filter</button>
 </form>
 
 @if ($tickets->isNotEmpty())
@@ -64,19 +95,17 @@
             <th class="w-12"></th>
             <th><a href="{{ $sortUrl('sequence') }}" class="text-blue-600 hover:underline">Ordem{{ $sortIcon('sequence') }}</a></th>
             <th><a href="{{ $sortUrl('zd_id') }}" class="text-blue-600 hover:underline">ID{{ $sortIcon('zd_id') }}</a></th>
-            @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-                <th>Requester</th>
-                <th>Organização</th>
-            @endif
-            <th><a href="{{ $sortUrl('subject') }}" class="text-blue-600 hover:underline">Subject{{ $sortIcon('subject') }}</a></th>
+            <th>Solicitante</th>
+            <th>Organização</th>
+            <th><a href="{{ $sortUrl('subject') }}" class="text-blue-600 hover:underline">Assunto{{ $sortIcon('subject') }}</a></th>
             <th><a href="{{ $sortUrl('status') }}" class="text-blue-600 hover:underline">Status{{ $sortIcon('status') }}</a></th>
-            <th><a href="{{ $sortUrl('priority') }}" class="text-blue-600 hover:underline">Priority{{ $sortIcon('priority') }}</a></th>
-            <th>Category</th>
-            <th>Severity</th>
-            <th>Pending</th>
-            <th><a href="{{ $sortUrl('zd_created_at') }}" class="text-blue-600 hover:underline">Created (ZD){{ $sortIcon('zd_created_at') }}</a></th>
-            <th><a href="{{ $sortUrl('zd_updated_at') }}" class="text-blue-600 hover:underline">Updated (ZD){{ $sortIcon('zd_updated_at') }}</a></th>
-            <th>Age</th>
+            <th><a href="{{ $sortUrl('priority') }}" class="text-blue-600 hover:underline">Prioridade{{ $sortIcon('priority') }}</a></th>
+            <th>Categoria</th>
+            <th>Gravidade</th>
+            <th>Pendente</th>
+            <th><a href="{{ $sortUrl('zd_created_at') }}" class="text-blue-600 hover:underline">Criado (ZD){{ $sortIcon('zd_created_at') }}</a></th>
+            <th><a href="{{ $sortUrl('zd_updated_at') }}" class="text-blue-600 hover:underline">Atualizado (ZD){{ $sortIcon('zd_updated_at') }}</a></th>
+            <th>Idade</th>
         </tr>
     </thead>
     <tbody>
@@ -100,21 +129,19 @@
                 'actions' => array_values($actionsNeeded),
             ]);
         @endphp
-        <tr class="{{ $rowClass }} sortable-row cursor-grab ticket-row" data-ticket-id="{{ $ticket->id }}" data-ai-preview="{{ e($aiPreview) }}">
+        <tr class="{{ $rowClass }} @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']) && ($sort ?? '') === 'sequence') sortable-row cursor-grab @endif ticket-row" data-ticket-id="{{ $ticket->id }}" data-ai-preview="{{ e($aiPreview) }}">
             <td class="text-gray-400">⋮⋮</td>
             <td class="text-sm text-gray-600">{{ $ticket->ticketOrder?->sequence !== null ? ($ticket->ticketOrder->sequence + 1) : '-' }}</td>
             <td><a href="{{ route('tickets.show', $ticket) }}" class="text-blue-600 hover:underline">#{{ $ticket->zd_id }}</a></td>
-            @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-                <td class="text-sm">{{ $ticket->requester?->name ?? $ticket->requester?->email ?? '-' }}</td>
-                <td class="text-sm">{{ $ticket->organization?->name ?? '-' }}</td>
-            @endif
+            <td class="text-sm">{{ $ticket->requester?->name ?? $ticket->requester?->email ?? '-' }}</td>
+            <td class="text-sm">{{ $ticket->organization?->name ?? '-' }}</td>
             <td>{{ Str::limit($ticket->subject, 60) }}</td>
-            <td><span class="badge badge-{{ $ticket->status }}">{{ $ticket->status }}</span></td>
-            <td>{{ $ticket->priority ?? '-' }}</td>
+            <td><span class="badge badge-{{ $ticket->status }}">{{ $statusLabels[$ticket->status] ?? $ticket->status }}</span></td>
+            <td>{{ $priorityLabels[$ticket->priority] ?? $ticket->priority ?? '-' }}</td>
             <td>{{ $ticket->analysis->first()?->category ?? '-' }}</td>
             <td>
                 @if ($ticket->analysis->first()?->severity)
-                    <span class="badge badge-{{ $ticket->analysis->first()->severity }}">{{ $ticket->analysis->first()->severity }}</span>
+                    <span class="badge badge-{{ $ticket->analysis->first()->severity }}">{{ $severityLabels[$ticket->analysis->first()->severity] ?? $ticket->analysis->first()->severity }}</span>
                 @else
                     -
                 @endif
@@ -122,27 +149,27 @@
             <td>
                 @php $pa = $ticket->analysis->first()?->pending_action; @endphp
                 @if ($pa === 'our_side')
-                    <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Our side">Us</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Nossa vez">Nós</span>
                 @elseif ($pa === 'customer_side')
-                    <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-800" title="Customer">Cust</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-800" title="Cliente">Cliente</span>
                 @elseif ($pa === 'can_close')
-                    <span class="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-800" title="Can close">Close</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-800" title="Pode fechar">Fechar</span>
                 @else
                     <span class="text-xs text-gray-400">-</span>
                 @endif
             </td>
-            <td class="text-sm">{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('Y-m-d H:i') ?? '-' }}</td>
-            <td class="text-sm">{{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('Y-m-d H:i') ?? '-' }}</td>
+            <td class="text-sm">{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('d/m/y H:i') ?? '-' }}</td>
+            <td class="text-sm">{{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('d/m/y H:i') ?? '-' }}</td>
             <td>
                 @if (!in_array($ticket->status ?? '', ['solved', 'closed']))
                     @if ($age === 'too_old')
-                        <span class="badge" style="background:#fee2e2;color:#991b1b;" title="Too old - {{ $ticket->days_since_update }} days since update">Too old</span>
+                        <span class="badge" style="background:#fee2e2;color:#991b1b;" title="Muito antigo - {{ $ticket->days_since_update }} dias desde atualização">Muito antigo</span>
                     @elseif ($age === 'old')
-                        <span class="badge" style="background:#fef3c7;color:#92400e;" title="{{ $ticket->days_since_update }} days since update">Old</span>
+                        <span class="badge" style="background:#fef3c7;color:#92400e;" title="{{ $ticket->days_since_update }} dias desde atualização">Antigo</span>
                     @elseif ($age === 'recent')
                         <span class="text-xs text-gray-600">{{ $ticket->days_since_update }}d</span>
                     @elseif ($age === 'fresh')
-                        <span class="text-xs text-green-600">Fresh</span>
+                        <span class="text-xs text-green-600">Recente</span>
                     @else
                         -
                     @endif
@@ -164,21 +191,19 @@
 
 @if ($resolvedTickets)
 <div class="mt-10 pt-8 border-t border-gray-200">
-    <h2 class="text-lg font-semibold mb-3 text-gray-600">Solved / Closed</h2>
+    <h2 class="text-lg font-semibold mb-3 text-gray-600">Resolvidos / Fechados</h2>
     <table class="opacity-90">
         <thead>
             <tr>
                 <th>ID</th>
-                @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-                    <th>Requester</th>
-                    <th>Organização</th>
-                @endif
-                <th>Subject</th>
+                <th>Solicitante</th>
+                <th>Organização</th>
+                <th>Assunto</th>
                 <th>Status</th>
-                <th>Priority</th>
-                <th>Category</th>
-                <th>Created (ZD)</th>
-                <th>Updated (ZD)</th>
+                <th>Prioridade</th>
+                <th>Categoria</th>
+                <th>Criado (ZD)</th>
+                <th>Atualizado (ZD)</th>
             </tr>
         </thead>
         <tbody>
@@ -202,20 +227,18 @@
             @endphp
             <tr class="bg-gray-50 text-gray-600 ticket-row" data-ai-preview="{{ e($resolvedAiPreview) }}">
                 <td><a href="{{ route('tickets.show', $ticket) }}" class="text-blue-600 hover:underline">#{{ $ticket->zd_id }}</a></td>
-                @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-                    <td class="text-sm">{{ $ticket->requester?->name ?? $ticket->requester?->email ?? '-' }}</td>
-                    <td class="text-sm">{{ $ticket->organization?->name ?? '-' }}</td>
-                @endif
+                <td class="text-sm">{{ $ticket->requester?->name ?? $ticket->requester?->email ?? '-' }}</td>
+                <td class="text-sm">{{ $ticket->organization?->name ?? '-' }}</td>
                 <td>{{ Str::limit($ticket->subject, 60) }}</td>
-                <td><span class="badge badge-{{ $ticket->status }}">{{ $ticket->status }}</span></td>
-                <td>{{ $ticket->priority ?? '-' }}</td>
+                <td><span class="badge badge-{{ $ticket->status }}">{{ $statusLabels[$ticket->status] ?? $ticket->status }}</span></td>
+                <td>{{ $priorityLabels[$ticket->priority] ?? $ticket->priority ?? '-' }}</td>
                 <td>{{ $ticket->analysis->first()?->category ?? '-' }}</td>
-                <td class="text-sm">{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('Y-m-d H:i') ?? '-' }}</td>
-                <td class="text-sm">{{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('Y-m-d H:i') ?? '-' }}</td>
+                <td class="text-sm">{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('d/m/y H:i') ?? '-' }}</td>
+                <td class="text-sm">{{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('d/m/y H:i') ?? '-' }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="{{ auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']) ? 9 : 7 }}" class="text-center text-gray-500 py-4">Nenhum ticket solved/closed.</td>
+                <td colspan="9" class="text-center text-gray-500 py-4">Nenhum ticket resolvido/fechado.</td>
             </tr>
             @endforelse
         </tbody>
@@ -312,10 +335,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-@if ($tickets->isNotEmpty() && ($sort ?? '') === 'sequence')
+@if ($tickets->isNotEmpty() && ($sort ?? '') === 'sequence' && auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
 <meta name="reorder-url" content="{{ route('tickets.reorder') }}">
-<meta name="tickets-page" content="{{ $tickets->currentPage() }}">
-<meta name="tickets-per-page" content="{{ $tickets->perPage() }}">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -323,9 +344,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!tbody) return;
     const reorderUrl = document.querySelector('meta[name="reorder-url"]')?.content || '';
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const page = parseInt(document.querySelector('meta[name="tickets-page"]')?.content || '1', 10);
-    const perPage = parseInt(document.querySelector('meta[name="tickets-per-page"]')?.content || '25', 10);
-    const offset = (page - 1) * perPage;
     new Sortable(tbody, {
         animation: 150,
         filter: 'a, input, select, button',
@@ -340,13 +358,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     'X-CSRF-TOKEN': csrfToken,
                     'Accept': 'application/json'
                 },
-                body: JSON.stringify({ ticket_ids: ids, page: page, per_page: perPage })
+                body: JSON.stringify({ ticket_ids: ids })
             }).then(r => r.json()).then(data => {
                 if (data.success) {
-                    rows.forEach((row, i) => {
-                        const seqCell = row.querySelector('td:nth-child(2)');
-                        if (seqCell) seqCell.textContent = offset + i + 1;
-                    });
+                    location.reload();
                 }
             });
         }

@@ -15,6 +15,10 @@ class ZdTicketPolicy
             return true;
         }
 
+        if ($user->can_view_org_tickets && $user->zdUser?->org_id !== null && $ticket->org_id === $user->zdUser->org_id) {
+            return true;
+        }
+
         $zdId = $user->zd_id;
         if ($zdId === null) {
             return false;

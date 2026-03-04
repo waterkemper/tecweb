@@ -32,6 +32,16 @@ class SummarizeTicketJob implements ShouldQueue
     public function handle(TicketRedactionService $redaction): void
     {
         $content = $this->buildContent();
+        $hash = hash('sha256', $content);
+
+        $analysis = AiTicketAnalysis::firstWhere('ticket_id', $this->ticket->id);
+        if ($analysis && $analysis->content_hash === $hash) {
+            $this->ticket->update(['ai_needs_refresh' => false]);
+            Log::debug('SummarizeTicketJob: content unchanged, skipped', ['ticket_id' => $this->ticket->id]);
+
+            return;
+        }
+
         $redacted = $redaction->redact($content);
 
         $model = config('openai.chat_model', 'gpt-4o-mini');
@@ -75,21 +85,22 @@ When in doubt, if an [Agent] message clearly addresses a customer question or re
         $bullets = $data['bullets'] ?? [];
         $summary = is_array($bullets)
             ? implode("\n", array_map(fn($b) => '• ' . $b, $bullets))
-            : ($data['summary'] ?? null);
+            : $this->ensureString($data['summary'] ?? null);
 
         $summaryFields = [
             'model_version' => $model,
-            'summary' => $summary,
-            'bullets' => $bullets,
-            'what_reported' => $data['what_reported'] ?? null,
-            'what_tried' => $data['what_tried'] ?? null,
-            'current_status' => $data['current_status'] ?? null,
-            'open_questions' => $data['open_questions'] ?? null,
+            'summary' => $this->ensureString($summary),
+            'bullets' => is_array($bullets) ? $bullets : [],
+            'what_reported' => $this->ensureString($data['what_reported'] ?? null),
+            'what_tried' => $this->ensureString($data['what_tried'] ?? null),
+            'current_status' => $this->ensureString($data['current_status'] ?? null),
+            'open_questions' => $this->ensureString($data['open_questions'] ?? null),
             'open_questions_list' => $this->normalizeStringArray($data['open_questions_list'] ?? []),
             'actions_needed_list' => $this->normalizeStringArray($data['actions_needed_list'] ?? []),
-            'next_action' => $data['next_action'] ?? null,
+            'next_action' => $this->ensureString($data['next_action'] ?? null),
             'pending_action' => $this->normalizePendingAction($data['pending_action'] ?? null),
             'last_ai_refresh_at' => now(),
+            'content_hash' => $hash,
         ];
 
         if ($this->refreshOnly) {
@@ -100,11 +111,14 @@ When in doubt, if an [Agent] message clearly addresses a customer question or re
             } else {
                 AiTicketAnalysis::create(array_merge(['ticket_id' => $this->ticket->id], $summaryFields));
             }
+            $this->ticket->update(['ai_needs_refresh' => false]);
         } else {
             AiTicketAnalysis::updateOrCreate(
                 ['ticket_id' => $this->ticket->id],
                 $summaryFields
             );
+
+            $this->ticket->update(['ai_needs_refresh' => false]);
 
             $pendingAction = $this->normalizePendingAction($data['pending_action'] ?? null);
             $openQuestions = $this->normalizeStringArray($data['open_questions_list'] ?? []);
@@ -117,7 +131,6 @@ When in doubt, if an [Agent] message clearly addresses a customer question or re
             if (! $isResolved) {
                 ClassifyTicketJob::dispatch($this->ticket);
             } else {
-                $this->ticket->update(['ai_needs_refresh' => false]);
                 Log::debug('SummarizeTicketJob: ticket resolved, skipped classification/effort', ['ticket_id' => $this->ticket->id]);
             }
         }
@@ -125,20 +138,21 @@ When in doubt, if an [Agent] message clearly addresses a customer question or re
 
     private function buildContent(): string
     {
-        $parts = [
-            "Subject: {$this->ticket->subject}",
-            "Description: {$this->ticket->description}",
-        ];
+        return $this->ticket->contentForHash();
+    }
 
-        $requesterId = $this->ticket->requester_id;
-        foreach ($this->ticket->comments()->orderBy('created_at')->get() as $c) {
-            $author = $c->is_public
-                ? ($c->author_id === $requesterId ? '[Customer]' : '[Agent]')
-                : '[Agent - Internal]';
-            $parts[] = "{$author} {$c->created_at}: {$c->body}";
+    private function ensureString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
         }
-
-        return implode("\n\n", $parts);
+        if (is_string($value)) {
+            return $value;
+        }
+        if (is_array($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE);
+        }
+        return (string) $value;
     }
 
     private function normalizePendingAction(?string $value): ?string

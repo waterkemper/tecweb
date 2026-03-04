@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Models\AiTicketAnalysis;
 use App\Models\ZdTicket;
 use App\Models\ZdTicketComment;
 use App\Services\ZendeskClient;
@@ -60,7 +61,13 @@ class FetchTicketCommentsJob implements ShouldQueue
             );
         }
 
-        $this->ticket->update(['ai_needs_refresh' => true]);
-        Log::debug('FetchTicketCommentsJob completed', ['ticket_id' => $this->ticket->id]);
+        $hash = hash('sha256', $this->ticket->refresh()->contentForHash());
+        $analysis = AiTicketAnalysis::firstWhere('ticket_id', $this->ticket->id);
+        $contentChanged = $analysis === null || $analysis->content_hash !== $hash;
+
+        if ($contentChanged) {
+            $this->ticket->update(['ai_needs_refresh' => true]);
+        }
+        Log::debug('FetchTicketCommentsJob completed', ['ticket_id' => $this->ticket->id, 'content_changed' => $contentChanged]);
     }
 }
