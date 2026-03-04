@@ -476,8 +476,9 @@
     <h3 class="font-semibold mb-2">Conversa</h3>
     @if (auth()->user())
         <div class="card mb-4 p-4 bg-slate-50 border border-slate-200">
-            <form action="{{ route('tickets.comments.store', $ticket) }}" method="post" enctype="multipart/form-data">
+            <form id="comment-form" action="{{ route('tickets.comments.store', $ticket) }}" method="post" enctype="multipart/form-data">
                 @csrf
+                <input type="hidden" name="also_update_status" id="also_update_status" value="">
                 <div class="mb-3">
                     <label for="comment_body" class="block text-sm font-medium text-gray-700 mb-1">Novo comentário</label>
                     <textarea name="body" id="comment_body" rows="4" required
@@ -518,7 +519,7 @@
         </div>
     @endif
     @foreach ($ticket->comments as $comment)
-        <div class="card mb-2 {{ $comment->is_public ? '' : 'bg-amber-50 border-amber-200' }}">
+        <div class="card mb-2 {{ $comment->is_public ? '' : 'bg-amber-100 border-l-4 border-amber-400' }}">
             <p class="text-sm text-gray-600 mb-1">
                 <span class="font-medium text-gray-800">{{ $comment->author?->name ?? $comment->author?->email ?? 'Desconhecido' }}</span>
                 · {{ $comment->created_at?->format('d/m/y H:i') }}
@@ -578,13 +579,21 @@
 (function() {
     var statusForm = document.getElementById('status-form');
     var statusSelect = document.getElementById('status-select');
+    var commentForm = document.getElementById('comment-form');
     var commentBody = document.getElementById('comment_body');
-    if (statusForm && statusSelect && commentBody) {
+    var alsoUpdateStatusInput = document.getElementById('also_update_status');
+    if (statusForm && statusSelect && commentForm && commentBody) {
         statusSelect.addEventListener('change', function() {
-            var hasComment = commentBody && commentBody.value.trim().length > 0;
+            var hasComment = commentBody.value.trim().length > 0;
             if (hasComment) {
-                if (!confirm('Você tem um comentário não enviado. Deseja descartar e alterar o status?')) {
-                    statusSelect.value = statusSelect.getAttribute('data-current');
+                var choice = confirm('Você tem um comentário não enviado. Deseja salvar o comentário antes de alterar o status?\n\nOK = Salvar comentário e alterar status\nCancelar = Descartar comentário e alterar status');
+                if (choice) {
+                    if (alsoUpdateStatusInput) {
+                        alsoUpdateStatusInput.value = statusSelect.value;
+                        commentForm.submit();
+                    } else {
+                        statusForm.submit();
+                    }
                     return;
                 }
             }

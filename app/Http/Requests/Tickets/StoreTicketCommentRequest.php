@@ -19,6 +19,7 @@ class StoreTicketCommentRequest extends FormRequest
             'body' => ['required', 'string', 'max:65535'],
             'is_internal' => ['nullable', 'boolean'],
             'close_with_comment' => ['nullable', 'boolean'],
+            'also_update_status' => ['nullable', 'string', 'in:new,open,pending,hold,solved,closed'],
             'attachments' => ['nullable', 'array'],
             'attachments.*' => ['file', 'max:51200'],
         ];

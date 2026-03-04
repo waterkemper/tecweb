@@ -497,6 +497,10 @@ class TicketController extends Controller
         if ($request->boolean('close_with_comment') && $canAddInternal && ! in_array($ticket->status ?? '', ['closed'])) {
             $statusToSet = in_array($ticket->status ?? '', ['solved']) ? 'closed' : 'solved';
         }
+        $alsoUpdateStatus = $request->validated('also_update_status');
+        if ($alsoUpdateStatus && $canAddInternal && ! in_array($ticket->status ?? '', ['closed'])) {
+            $statusToSet = $alsoUpdateStatus;
+        }
 
         try {
             $commentService->addComment($ticket, $body, $isPublic, $uploadTokens, $authorId, $client, $statusToSet);
@@ -511,7 +515,7 @@ class TicketController extends Controller
             ]);
         }
 
-        FetchTicketCommentsJob::dispatch($ticket);
+        FetchTicketCommentsJob::dispatchSync($ticket);
 
         $message = $statusToSet === 'closed'
             ? 'Comentário enviado e ticket fechado.'
