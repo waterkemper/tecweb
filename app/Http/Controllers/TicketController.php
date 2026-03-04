@@ -515,7 +515,7 @@ class TicketController extends Controller
             ]);
         }
 
-        FetchTicketCommentsJob::dispatchSync($ticket);
+        FetchTicketCommentsJob::dispatch($ticket);
 
         $message = $statusToSet === 'closed'
             ? 'Comentário enviado e ticket fechado.'
