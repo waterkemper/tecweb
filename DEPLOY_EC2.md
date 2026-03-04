@@ -6,6 +6,23 @@ Guia passo a passo para deploy da aplicação tecDESK em Docker em servidor EC2 
 
 ---
 
+## Testar localmente (produção)
+
+Para validar o setup antes do deploy no EC2:
+
+```bash
+cp .env.example .env
+# Edite .env: DB_HOST=host.docker.internal, DB_PORT=5437, DB_*, ZENDESK_*, OPENAI_*
+php artisan key:generate  # ou defina APP_KEY no .env
+
+docker compose -f docker-compose.prod.yml up -d --build
+# App em http://localhost:8080
+```
+
+O PostgreSQL deve estar rodando no host (porta 5437) com o banco criado e extensão pgvector. No Windows/Mac, `host.docker.internal` funciona nativamente; no Linux, o `docker-compose.prod.yml` já inclui `extra_hosts`.
+
+---
+
 ## 1. DNS
 
 Se o subdomínio ainda não existir, crie o registro:
