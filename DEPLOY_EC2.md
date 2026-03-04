@@ -136,20 +136,15 @@ docker compose -f docker-compose.prod.yml exec app php artisan zendesk:sync-user
 
 > **Amazon Linux 2** usa `httpd` (não apache2). Caminhos e comandos abaixo são para essa distro.
 
-### 5.1 Habilitar módulos de proxy
+### 5.1 Habilitar módulos (proxy e SSL)
 
-No Amazon Linux 2, os módulos `proxy` e `proxy_http` costumam vir habilitados. Verifique:
+No Amazon Linux 2, verifique se os módulos estão carregados:
 
 ```bash
-httpd -M | grep proxy
+httpd -M | grep -E "proxy|ssl"
 ```
 
-Se não aparecer `proxy_module` ou `proxy_http_module`, descomente as linhas em `/etc/httpd/conf.modules.d/00-base.conf` ou crie `/etc/httpd/conf.modules.d/01-proxy.conf` com:
-
-```apache
-LoadModule proxy_module modules/mod_proxy.so
-LoadModule proxy_http_module modules/mod_proxy_http.so
-```
+Para HTTPS, `ssl_module` é necessário. Se faltar `proxy_module`, `proxy_http_module` ou `ssl_module`, habilite em `/etc/httpd/conf.modules.d/`.
 
 Depois:
 
@@ -159,11 +154,22 @@ sudo systemctl reload httpd
 
 ### 5.2 Criar VirtualHost
 
-Crie o arquivo em `/etc/httpd/conf.d/tecdesk.iteclux.com.br.conf`:
+Crie o diretório para o desafio ACME e o arquivo de configuração:
+
+```bash
+sudo mkdir -p /data/var/www/html/tecdesk-acme
+```
+
+Crie `/etc/httpd/conf.d/tecdesk.iteclux.com.br.conf`:
 
 ```apache
 <VirtualHost *:80>
     ServerName tecdesk.iteclux.com.br
+    DocumentRoot /data/var/www/html/tecdesk-acme
+
+    # ACME challenge (acme.sh) - deve vir antes do ProxyPass
+    ProxyPass /.well-known !
+    Alias /.well-known/acme-challenge /data/var/www/html/tecdesk-acme/.well-known/acme-challenge
 
     ProxyPreserveHost On
     ProxyPass / http://127.0.0.1:8081/
@@ -176,19 +182,61 @@ Crie o arquivo em `/etc/httpd/conf.d/tecdesk.iteclux.com.br.conf`:
 
 ### 5.3 Recarregar o httpd
 
-Arquivos em `/etc/httpd/conf.d/` são carregados automaticamente. Recarregue:
-
 ```bash
 sudo systemctl reload httpd
 ```
 
-### 5.4 SSL com Let's Encrypt
+### 5.4 SSL com acme.sh
+
+Se você usa **acme.sh** (não certbot):
 
 ```bash
-sudo certbot --apache -d tecdesk.iteclux.com.br
+# Emitir certificado (validação HTTP no webroot)
+/root/.acme.sh/acme.sh --issue -d tecdesk.iteclux.com.br -w /data/var/www/html/tecdesk-acme
+
+# (Opcional) Instalar em /etc para reload na renovação:
+# /root/.acme.sh/acme.sh --install-cert -d tecdesk.iteclux.com.br \
+#   --key-file /etc/pki/tls/private/tecdesk.iteclux.com.br.key \
+#   --fullchain-file /etc/pki/tls/certs/tecdesk.iteclux.com.br.crt \
+#   --reloadcmd "systemctl reload httpd"
 ```
 
-O Certbot ajusta o VirtualHost para HTTPS. A renovação automática já vem configurada.
+Depois, altere o VirtualHost para HTTPS. Exemplo em `/etc/httpd/conf.d/tecdesk.iteclux.com.br.conf` usando os arquivos do acme.sh:
+
+```apache
+<VirtualHost *:80>
+    ServerName tecdesk.iteclux.com.br
+    Redirect permanent / https://tecdesk.iteclux.com.br/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName tecdesk.iteclux.com.br
+    DocumentRoot /data/var/www/html/tecdesk-acme
+
+    SSLEngine on
+    SSLCertificateFile /root/.acme.sh/tecdesk.iteclux.com.br/fullchain.cer
+    SSLCertificateKeyFile /root/.acme.sh/tecdesk.iteclux.com.br/tecdesk.iteclux.com.br.key
+
+    ProxyPass /.well-known !
+    Alias /.well-known/acme-challenge /data/var/www/html/tecdesk-acme/.well-known/acme-challenge
+
+    RequestHeader set X-Forwarded-Proto "https"
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:8081/
+    ProxyPassReverse / http://127.0.0.1:8081/
+
+    ErrorLog /var/log/httpd/tecdesk-ssl-error.log
+    CustomLog /var/log/httpd/tecdesk-ssl-access.log combined
+</VirtualHost>
+```
+
+Ajuste os caminhos do certificado conforme seu padrão do acme.sh (ex.: `~/.acme.sh/tecdesk.iteclux.com.br/`).
+
+**Formulário "não seguro" ao enviar:** Verifique que `APP_URL=https://tecdesk.iteclux.com.br` no `.env` (com **https**). Depois:
+```bash
+docker-compose -f docker-compose.prod.yml exec app php artisan config:clear
+docker-compose -f docker-compose.prod.yml restart app
+```
 
 ---
 
