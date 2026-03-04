@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class TicketController extends Controller
@@ -317,8 +318,7 @@ class TicketController extends Controller
         try {
             $client->updateTicket((int) $ticket->zd_id, ['tags' => $merged]);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao aplicar tags no Zendesk: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao aplicar tags no Zendesk.');
         }
 
         $ticket->update(['tags' => $merged, 'zd_updated_at' => now()]);
@@ -349,8 +349,7 @@ class TicketController extends Controller
         try {
             $client->updateTicket((int) $ticket->zd_id, ['tags' => $tags]);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao atualizar tags no Zendesk: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao atualizar tags no Zendesk.');
         }
 
         $ticket->update(['tags' => $tags, 'zd_updated_at' => now()]);
@@ -370,8 +369,7 @@ class TicketController extends Controller
         try {
             $raw = $client->getTicket((int) $ticket->zd_id);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao buscar ticket no Zendesk: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao buscar ticket no Zendesk.');
         }
 
         if ($raw === null) {
@@ -444,8 +442,7 @@ class TicketController extends Controller
                 $authorId
             );
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao enviar comentário: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao enviar comentário.');
         }
 
         FetchTicketCommentsJob::dispatch($ticket);
@@ -469,8 +466,7 @@ class TicketController extends Controller
         try {
             $client->updateTicket((int) $ticket->zd_id, ['status' => $validated['status']]);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao alterar status: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao alterar status.');
         }
 
         $ticket->update([
@@ -506,6 +502,17 @@ class TicketController extends Controller
 
         return redirect()->route('tickets.show', $ticket)
             ->with('success', 'Pendente por atualizado.');
+    }
+
+    private function redirectWithZendeskError(ZdTicket $ticket, \Throwable $error, string $message): RedirectResponse
+    {
+        Log::warning('TicketController Zendesk operation failed', [
+            'ticket_id' => $ticket->id,
+            'zd_ticket_id' => $ticket->zd_id,
+            'error' => $error->getMessage(),
+        ]);
+
+        return redirect()->route('tickets.show', $ticket)->with('error', $message);
     }
 
     private function computeSimilarTicketsAvgHours(ZdTicket $ticket, ?array $filterSimilarIds = null): ?float
