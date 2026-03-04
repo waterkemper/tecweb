@@ -23,6 +23,7 @@
         .badge-new { background: #dbeafe; color: #1e40af; }
         .badge-open { background: #fef3c7; color: #92400e; }
         .badge-pending { background: #e5e7eb; color: #6b7280; }
+        .badge-hold { background: #e0e7ff; color: #3730a3; }
         .badge-solved { background: #d1fae5; color: #065f46; }
         .badge-closed { background: #f3f4f6; color: #4b5563; }
         .badge-critical { background: #fee2e2; color: #991b1b; }

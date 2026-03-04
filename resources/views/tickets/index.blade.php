@@ -73,6 +73,15 @@
                 <option value="low" {{ ($filters['priority'] ?? '') === 'low' ? 'selected' : '' }}>Baixa</option>
             </select>
         </div>
+        @if (auth()->user()?->zd_id)
+        <div class="flex-shrink-0 flex items-end">
+            <label class="inline-flex items-center gap-2 px-3 py-2 cursor-pointer">
+                <input type="checkbox" name="mine" value="1" {{ ($filters['mine'] ?? '') ? 'checked' : '' }}
+                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                <span class="text-sm font-medium text-slate-600">Somente criados por mim</span>
+            </label>
+        </div>
+        @endif
         <div class="flex-shrink-0 flex items-end gap-1">
             <div>
                 <label class="block text-xs font-medium text-slate-500 mb-0.5">De</label>
@@ -103,8 +112,8 @@
             <th>Categoria</th>
             <th>Gravidade</th>
             <th>Pendente</th>
-            <th><a href="{{ $sortUrl('zd_created_at') }}" class="text-blue-600 hover:underline">Criado (ZD){{ $sortIcon('zd_created_at') }}</a></th>
-            <th><a href="{{ $sortUrl('zd_updated_at') }}" class="text-blue-600 hover:underline">Atualizado (ZD){{ $sortIcon('zd_updated_at') }}</a></th>
+            <th><a href="{{ $sortUrl('zd_created_at') }}" class="text-blue-600 hover:underline">Criado{{ $sortIcon('zd_created_at') }}</a></th>
+            <th><a href="{{ $sortUrl('zd_updated_at') }}" class="text-blue-600 hover:underline">Atualizado{{ $sortIcon('zd_updated_at') }}</a></th>
             <th>Idade</th>
         </tr>
     </thead>

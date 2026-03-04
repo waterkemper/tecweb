@@ -11,14 +11,30 @@
         <h1 class="text-2xl font-bold">Ticket #{{ $ticket->zd_id }} — <span class="font-normal text-gray-700">{{ $ticket->subject }}</span></h1>
         <div class="flex items-center gap-3">
             @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-                <form action="{{ route('tickets.status.update', $ticket) }}" method="post" class="inline-flex items-center gap-2">
-                    @csrf
-                    <select name="status" onchange="this.form.submit()" class="text-sm border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
-                        @foreach ($statusLabels as $val => $label)
-                            <option value="{{ $val }}" {{ ($ticket->status ?? '') === $val ? 'selected' : '' }}>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                </form>
+                @php
+                    $currentStatus = $ticket->status ?? 'open';
+                    $isClosed = $currentStatus === 'closed';
+                    $allowedStatuses = $isClosed
+                        ? []
+                        : (in_array($currentStatus, ['new', 'open', 'pending', 'hold'])
+                            ? ['new', 'open', 'pending', 'hold', 'solved']
+                            : array_keys($statusLabels));
+                @endphp
+                @if ($isClosed)
+                    <span class="badge badge-closed">{{ $statusLabels['closed'] }}</span>
+                    <span class="text-xs text-gray-500">(não pode ser reaberto)</span>
+                @else
+                    <form id="status-form" action="{{ route('tickets.status.update', $ticket) }}" method="post" class="inline-flex items-center gap-2">
+                        @csrf
+                        <select name="status" id="status-select" data-current="{{ $currentStatus }}" class="text-sm border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                            @foreach ($statusLabels as $val => $label)
+                                @if (in_array($val, $allowedStatuses))
+                                    <option value="{{ $val }}" {{ $currentStatus === $val ? 'selected' : '' }}>{{ $label }}</option>
+                                @endif
+                            @endforeach
+                        </select>
+                    </form>
+                @endif
             @else
                 <span class="badge badge-{{ $ticket->status ?? 'open' }}">{{ $statusLabels[$ticket->status ?? ''] ?? ($ticket->status ?? '-') }}</span>
             @endif
@@ -389,6 +405,15 @@
 @if (session('error'))
     <div class="mb-4 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg text-sm">{{ session('error') }}</div>
 @endif
+@if ($errors->any())
+    <div class="mb-4 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg text-sm">
+        <ul class="list-disc list-inside">
+            @foreach ($errors->all() as $error)
+                <li>{{ $error }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
 
 @if (!$analysis && $similarTickets->isNotEmpty())
     <div class="card mb-6 border-l-4 border-l-blue-500">
@@ -433,6 +458,20 @@
                         <span class="text-sm text-gray-700">Comentário interno (só colaboradores)</span>
                     </label>
                 </div>
+                @if (!in_array($ticket->status ?? '', ['closed']))
+                <div class="mb-3">
+                    <label class="inline-flex items-center gap-2">
+                        <input type="checkbox" name="close_with_comment" value="1" id="close_with_comment" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="text-sm text-gray-700">
+                            @if (in_array($ticket->status ?? '', ['solved']))
+                                Enviar e fechar ticket
+                            @else
+                                Enviar e marcar como resolvido
+                            @endif
+                        </span>
+                    </label>
+                </div>
+                @endif
                 @endif
                 <div class="mb-3">
                     <label for="attachments" class="block text-sm font-medium text-gray-700 mb-1">Anexos (máx. 50 MB cada)</label>
@@ -500,4 +539,26 @@
         </div>
     @endforeach
 </div>
+
+@if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+<script>
+(function() {
+    var statusForm = document.getElementById('status-form');
+    var statusSelect = document.getElementById('status-select');
+    var commentBody = document.getElementById('comment_body');
+    if (statusForm && statusSelect && commentBody) {
+        statusSelect.addEventListener('change', function() {
+            var hasComment = commentBody && commentBody.value.trim().length > 0;
+            if (hasComment) {
+                if (!confirm('Você tem um comentário não enviado. Deseja descartar e alterar o status?')) {
+                    statusSelect.value = statusSelect.getAttribute('data-current');
+                    return;
+                }
+            }
+            statusForm.submit();
+        });
+    }
+})();
+</script>
+@endif
 @endsection

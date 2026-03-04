@@ -44,8 +44,9 @@ class TicketCommentService
         bool $isPublic,
         array $uploadTokens,
         ?int $authorId,
-        ZendeskClient $client
+        ZendeskClient $client,
+        ?string $status = null
     ): void {
-        $client->addTicketComment((int) $ticket->zd_id, $body, $isPublic, $uploadTokens, $authorId);
+        $client->addTicketComment((int) $ticket->zd_id, $body, $isPublic, $uploadTokens, $authorId, $status);
     }
 }

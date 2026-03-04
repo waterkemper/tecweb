@@ -30,7 +30,7 @@ class TicketController extends Controller
     public function index(Request $request): View
     {
         $statusFilter = $request->get('status');
-        $filters = $request->only(['q', 'status', 'priority', 'category', 'severity', 'tag', 'from', 'to', 'org', 'requester']);
+        $filters = $request->only(['q', 'status', 'priority', 'category', 'severity', 'tag', 'from', 'to', 'org', 'requester', 'mine']);
         $sort = $request->get('sort', 'sequence');
         $dir = strtolower($request->get('dir', 'asc')) === 'asc' ? 'asc' : 'desc';
         $allowedSort = ['zd_id', 'subject', 'status', 'priority', 'zd_created_at', 'zd_updated_at', 'sequence'];
@@ -92,7 +92,7 @@ class TicketController extends Controller
             ->with(['analysis' => fn ($q) => $q->latest()->limit(1), 'ticketOrder', 'requester', 'organization'])
             ->search($request->get('q'))
             ->filterOrg(in_array($user?->role, ['admin', 'colaborador']) ? $request->get('org') : null)
-            ->filterRequester($request->get('requester'))
+            ->filterRequester($request->boolean('mine') && $user?->zd_id ? $user->zd_id : $request->get('requester'))
             ->filterPriority($request->get('priority'))
             ->filterCategory($request->get('category'))
             ->filterSeverity($request->get('severity'))
@@ -131,7 +131,7 @@ class TicketController extends Controller
             ->with(['analysis' => fn ($q) => $q->latest()->limit(1), 'requester', 'organization'])
             ->search($request->get('q'))
             ->filterOrg(in_array($user?->role, ['admin', 'colaborador']) ? $request->get('org') : null)
-            ->filterRequester($request->get('requester'))
+            ->filterRequester($request->boolean('mine') && $user?->zd_id ? $user->zd_id : $request->get('requester'))
             ->filterPriority($request->get('priority'))
             ->filterCategory($request->get('category'))
             ->filterSeverity($request->get('severity'))
@@ -372,16 +372,34 @@ class TicketController extends Controller
             return redirect()->route('tickets.show', $ticket)->with('error', $e->getMessage());
         }
 
+        $statusToSet = null;
+        if ($request->boolean('close_with_comment') && $canAddInternal && ! in_array($ticket->status ?? '', ['closed'])) {
+            $statusToSet = in_array($ticket->status ?? '', ['solved']) ? 'closed' : 'solved';
+        }
+
         try {
-            $commentService->addComment($ticket, $body, $isPublic, $uploadTokens, $authorId, $client);
+            $commentService->addComment($ticket, $body, $isPublic, $uploadTokens, $authorId, $client, $statusToSet);
         } catch (\Throwable $e) {
             return $this->redirectWithZendeskError($ticket, $e, 'Erro ao enviar comentário.');
         }
 
+        if ($statusToSet !== null) {
+            $ticket->update([
+                'status' => $statusToSet,
+                'zd_updated_at' => now(),
+            ]);
+        }
+
         FetchTicketCommentsJob::dispatch($ticket);
 
+        $message = $statusToSet === 'closed'
+            ? 'Comentário enviado e ticket fechado.'
+            : ($statusToSet === 'solved'
+                ? 'Comentário enviado e ticket marcado como resolvido.'
+                : 'Comentário enviado com sucesso.');
+
         return redirect()->route('tickets.show', $ticket)
-            ->with('success', 'Comentário enviado com sucesso.');
+            ->with('success', $message);
     }
 
     public function updateStatus(UpdateStatusRequest $request, ZdTicket $ticket, ZendeskClient $client, TicketWorkflowService $workflow): RedirectResponse

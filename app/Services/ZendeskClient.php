@@ -471,8 +471,9 @@ class ZendeskClient
 
     /**
      * Add a comment to a ticket. Optionally include upload tokens from uploadFile().
+     * When $status is provided, also updates the ticket status in the same request.
      */
-    public function addTicketComment(int $zdTicketId, string $body, bool $public = true, array $uploadTokens = [], ?int $authorId = null): void
+    public function addTicketComment(int $zdTicketId, string $body, bool $public = true, array $uploadTokens = [], ?int $authorId = null, ?string $status = null): void
     {
         $comment = [
             'body' => $body,
@@ -485,7 +486,11 @@ class ZendeskClient
             $comment['author_id'] = $authorId;
         }
 
-        $this->updateTicket($zdTicketId, ['comment' => $comment]);
+        $data = ['comment' => $comment];
+        if ($status !== null) {
+            $data['status'] = $status;
+        }
+        $this->updateTicket($zdTicketId, $data);
     }
 
     /**
