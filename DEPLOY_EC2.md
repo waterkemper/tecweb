@@ -2,7 +2,7 @@
 
 Guia passo a passo para deploy da aplicação tecDESK em Docker em servidor EC2 existente, usando PostgreSQL 17 já instalado no host e Apache como reverse proxy.
 
-**Cenário:** Servidor com sites e-commerce em Apache, outro app em Docker, PostgreSQL 17 e Redis já instalados no host.
+**Cenário:** Servidor com sites e-commerce em Apache, outro app em Docker, PostgreSQL 17 no host. Redis roda no container (sem conflito com Redis do host).
 
 ---
 
@@ -12,14 +12,14 @@ Para validar o setup antes do deploy no EC2:
 
 ```bash
 cp .env.example .env
-# Edite .env: DB_HOST, DB_PORT=5437, REDIS_HOST=host.docker.internal, REDIS_PORT=6379, DB_*, ZENDESK_*, OPENAI_*
+# Edite .env: DB_HOST, DB_PORT=5437, DB_*, ZENDESK_*, OPENAI_*
 php artisan key:generate  # ou defina APP_KEY no .env
 
 docker compose -f docker-compose.prod.yml up -d --build
 # App em http://localhost:8081
 ```
 
-PostgreSQL (porta 5437) e Redis (porta 6379) devem estar rodando no host. No Windows/Mac, `host.docker.internal` funciona nativamente; no Linux, o `docker-compose.prod.yml` já inclui `extra_hosts`.
+PostgreSQL (porta 5437) deve estar rodando no host. Redis roda no container. No Windows/Mac, `host.docker.internal` funciona nativamente; no Linux, o `docker-compose.prod.yml` já inclui `extra_hosts`.
 
 ---
 
@@ -70,9 +70,7 @@ DB_DATABASE=zendesk_ai
 DB_USERNAME=seu_usuario
 DB_PASSWORD=sua_senha
 
-# Redis (já instalado no host)
-REDIS_HOST=host.docker.internal
-REDIS_PORT=6379
+# Redis (no container - não precisa configurar REDIS_HOST no .env)
 QUEUE_CONNECTION=redis
 CACHE_STORE=redis
 SESSION_DRIVER=database
@@ -109,7 +107,7 @@ O `.env` do host é montado no container; a chave gerada será salva no seu `.en
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Isso sobe apenas **app** (porta 8081). PostgreSQL e Redis são do host.
+Isso sobe **app** (porta 8081) e **redis** (interno, sem porta exposta). PostgreSQL é do host.
 
 **Conflito de porta:** Se 8081 também estiver em uso, altere no `docker-compose.prod.yml` (ex.: `"8082:80"`) e no VirtualHost do Apache (`ProxyPass` e `ProxyPassReverse`).
 
