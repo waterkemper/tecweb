@@ -1,12 +1,11 @@
-# tecDESK - Produção com PostgreSQL externo (host)
-# Uso: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# tecDESK - Produção com PostgreSQL e Redis no host
+# Uso: docker compose -f docker-compose.prod.yml up -d
 #
 # Configure no .env:
-#   DB_HOST=host.docker.internal  (Linux: use extra_hosts abaixo)
-#   DB_PORT=5432
-#   DB_DATABASE=zendesk_ai
-#   DB_USERNAME=seu_usuario
-#   DB_PASSWORD=sua_senha
+#   DB_HOST=host.docker.internal
+#   DB_PORT=5437
+#   REDIS_HOST=host.docker.internal
+#   REDIS_PORT=6379
 
 services:
   app:
@@ -27,8 +26,8 @@ services:
       - DB_DATABASE=${DB_DATABASE}
       - DB_USERNAME=${DB_USERNAME}
       - DB_PASSWORD=${DB_PASSWORD}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - REDIS_HOST=${REDIS_HOST:-host.docker.internal}
+      - REDIS_PORT=${REDIS_PORT:-6379}
       - CACHE_STORE=redis
       - QUEUE_CONNECTION=redis
       - SESSION_DRIVER=database
@@ -39,24 +38,10 @@ services:
       - storage_logs:/var/www/html/storage/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      redis:
-        condition: service_started
-    networks:
-      - tecdesk
-
-  redis:
-    image: redis:7-alpine
-    container_name: tecdesk-redis
-    restart: unless-stopped
-    # Sem ports - app conecta via rede interna (redis:6379); evita conflito com Redis no host
-    volumes:
-      - redis_data:/data
     networks:
       - tecdesk
 
 volumes:
-  redis_data:
   storage_logs:
 
 networks:
