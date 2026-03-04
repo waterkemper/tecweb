@@ -4,17 +4,25 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Tickets\ReorderTicketsRequest;
+use App\Http\Requests\Tickets\StoreTicketCommentRequest;
+use App\Http\Requests\Tickets\UpdatePendingActionRequest;
+use App\Http\Requests\Tickets\UpdateStatusRequest;
+use App\Http\Requests\Tickets\UpdateTagsRequest;
 use App\Jobs\FetchTicketCommentsJob;
 use App\Jobs\SummarizeTicketJob;
 use Illuminate\Support\Facades\Bus;
 use App\Models\AiSimilarTicket;
-use App\Models\TicketOrder;
 use App\Models\ZdTicket;
+use App\Services\TicketCommentService;
+use App\Services\TicketTagService;
+use App\Services\TicketWorkflowService;
 use App\Services\ZendeskClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class TicketController extends Controller
@@ -53,11 +61,15 @@ class TicketController extends Controller
             unset($filters['org']);
         }
 
-        $baseQuery = ZdTicket::query()->visibleToUser($request->user());
+        $visibleTicketsQuery = ZdTicket::query()->visibleToUser($request->user());
         $organizations = in_array($request->user()?->role, ['admin', 'colaborador'])
-            ? \App\Models\ZdOrg::whereIn('zd_id', $baseQuery->clone()->pluck('org_id')->filter()->unique()->values())->orderBy('name')->get()
+            ? \App\Models\ZdOrg::query()
+                ->whereIn('zd_id', (clone $visibleTicketsQuery)->select('org_id')->whereNotNull('org_id')->distinct())
+                ->orderBy('name')
+                ->get()
             : collect();
-        $requesters = \App\Models\ZdUser::whereIn('zd_id', $baseQuery->clone()->pluck('requester_id')->filter()->unique()->values())
+        $requesters = \App\Models\ZdUser::query()
+            ->whereIn('zd_id', (clone $visibleTicketsQuery)->select('requester_id')->whereNotNull('requester_id')->distinct())
             ->orderBy('name')
             ->get();
 
@@ -249,43 +261,10 @@ class TicketController extends Controller
             ->with('success', 'Previsão interna atualizada.');
     }
 
-    public function reorder(Request $request): JsonResponse|RedirectResponse
+    public function reorder(ReorderTicketsRequest $request, TicketWorkflowService $workflow): JsonResponse|RedirectResponse
     {
-        if (! in_array($request->user()?->role, ['admin', 'colaborador'])) {
-            abort(403, 'Apenas administradores e colaboradores podem reordenar tickets.');
-        }
-
-        $ids = $request->input('ticket_ids', []);
-        if (! is_array($ids) || empty($ids)) {
-            return $request->expectsJson()
-                ? response()->json(['error' => 'Nenhum ticket para ordenar.'], 422)
-                : redirect()->route('tickets.index')->with('error', 'Nenhum ticket para ordenar.');
-        }
-
-        $ticketIds = array_map('intval', array_values($ids));
-        $tickets = ZdTicket::visibleToUser($request->user())
-            ->whereIn('id', $ticketIds)
-            ->get(['id', 'requester_id'])
-            ->keyBy('id');
-
-        $validIds = $tickets->pluck('id')->toArray();
-
-        $seqByRequester = [];
-        foreach ($ticketIds as $ticketId) {
-            $ticket = $tickets->get($ticketId);
-            if (! $ticket || ! in_array($ticketId, $validIds)) {
-                continue;
-            }
-            $reqId = $ticket->requester_id ?? 0;
-            if (! isset($seqByRequester[$reqId])) {
-                $seqByRequester[$reqId] = 0;
-            }
-            $seq = $seqByRequester[$reqId]++;
-            TicketOrder::updateOrCreate(
-                ['ticket_id' => $ticketId],
-                ['requester_id' => $ticket->requester_id, 'sequence' => $seq]
-            );
-        }
+        $validated = $request->validated();
+        $workflow->reorderTickets($request->user(), $validated['ticket_ids']);
 
         return $request->expectsJson()
             ? response()->json(['success' => true])
@@ -295,51 +274,33 @@ class TicketController extends Controller
             ))->with('success', 'Ordem atualizada.');
     }
 
-    public function applySuggestedTags(ZdTicket $ticket, ZendeskClient $client): RedirectResponse
+    public function applySuggestedTags(ZdTicket $ticket, ZendeskClient $client, TicketTagService $tagsService): RedirectResponse
     {
         $this->authorize('view', $ticket);
 
-        if (! in_array(auth()->user()?->role, ['admin', 'colaborador'])) {
+        if (! $this->isStaffUser()) {
             abort(403, 'Apenas administradores e colaboradores podem aplicar tags.');
         }
 
-        $analysis = $ticket->analysis()->latest()->first();
-        $suggested = $analysis?->suggested_tags ?? [];
-
-        if (empty($suggested)) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Nenhuma tag sugerida.');
-        }
-
-        $current = $ticket->tags ?? [];
-        $merged = array_values(array_unique(array_merge($current, $suggested)));
-
         try {
-            $client->updateTicket((int) $ticket->zd_id, ['tags' => $merged]);
+            if (! $tagsService->applySuggestedTags($ticket, $client)) {
+                return redirect()->route('tickets.show', $ticket)
+                    ->with('error', 'Nenhuma tag sugerida.');
+            }
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao aplicar tags no Zendesk: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao aplicar tags no Zendesk.');
         }
-
-        $ticket->update(['tags' => $merged, 'zd_updated_at' => now()]);
 
         return redirect()->route('tickets.show', $ticket)
             ->with('success', 'Tags aplicadas.');
     }
 
-    public function updateTags(Request $request, ZdTicket $ticket, ZendeskClient $client): RedirectResponse
+    public function updateTags(UpdateTagsRequest $request, ZdTicket $ticket, ZendeskClient $client, TicketTagService $tagsService): RedirectResponse
     {
         $this->authorize('view', $ticket);
 
-        if (! in_array(auth()->user()?->role, ['admin', 'colaborador'])) {
-            abort(403, 'Apenas administradores e colaboradores podem alterar tags.');
-        }
-
-        $input = (string) $request->input('tags', '');
-        $tags = array_values(array_unique(array_filter(array_map(function (string $t) {
-            $s = trim($t);
-            return $s !== '' ? preg_replace('/[^\p{L}\p{N}\-_:\/]/u', '', $s) : '';
-        }, preg_split('/[\s,]+/', $input)))));
+        $input = (string) $request->validated('tags', '');
+        $tags = $tagsService->parseTags($input);
 
         if (strlen(implode('', $tags)) > 5096) {
             return redirect()->route('tickets.show', $ticket)
@@ -347,55 +308,43 @@ class TicketController extends Controller
         }
 
         try {
-            $client->updateTicket((int) $ticket->zd_id, ['tags' => $tags]);
+            $tagsService->updateTags($ticket, $tags, $client);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao atualizar tags no Zendesk: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao atualizar tags no Zendesk.');
         }
-
-        $ticket->update(['tags' => $tags, 'zd_updated_at' => now()]);
 
         return redirect()->route('tickets.show', $ticket)
             ->with('success', 'Tags atualizadas.');
     }
 
-    public function syncTags(ZdTicket $ticket, ZendeskClient $client): RedirectResponse
+    public function syncTags(ZdTicket $ticket, ZendeskClient $client, TicketTagService $tagsService): RedirectResponse
     {
         $this->authorize('view', $ticket);
 
-        if (! in_array(auth()->user()?->role, ['admin', 'colaborador'])) {
+        if (! $this->isStaffUser()) {
             abort(403, 'Apenas administradores e colaboradores podem sincronizar tags.');
         }
 
         try {
-            $raw = $client->getTicket((int) $ticket->zd_id);
+            $synced = $tagsService->syncTags($ticket, $client);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao buscar ticket no Zendesk: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao buscar ticket no Zendesk.');
         }
 
-        if ($raw === null) {
+        if (! $synced) {
             return redirect()->route('tickets.show', $ticket)
                 ->with('error', 'Ticket não encontrado no Zendesk.');
         }
-
-        $tags = $raw['tags'] ?? [];
-        $ticket->update(['tags' => $tags, 'zd_updated_at' => isset($raw['updated_at']) ? \Carbon\Carbon::parse($raw['updated_at']) : $ticket->zd_updated_at]);
 
         return redirect()->route('tickets.show', $ticket)
             ->with('success', 'Tags sincronizadas do Zendesk.');
     }
 
-    public function storeComment(Request $request, ZdTicket $ticket, ZendeskClient $client): RedirectResponse
+    public function storeComment(StoreTicketCommentRequest $request, ZdTicket $ticket, ZendeskClient $client, TicketCommentService $commentService): RedirectResponse
     {
         $this->authorize('view', $ticket);
 
-        $validated = $request->validate([
-            'body' => ['required', 'string', 'max:65535'],
-            'is_internal' => ['nullable', 'boolean'],
-        ]);
-
-        $body = trim($validated['body']);
+        $body = trim((string) $request->validated('body'));
         if ($body === '') {
             return redirect()->route('tickets.show', $ticket)
                 ->with('error', 'O comentário não pode estar vazio.');
@@ -412,40 +361,21 @@ class TicketController extends Controller
 
         $uploadTokens = [];
 
-        $maxFileSize = 50 * 1024 * 1024; // 50 MB
         $files = $request->file('attachments', []);
         if (! is_array($files)) {
             $files = $files ? [$files] : [];
         }
 
-        foreach ($files as $file) {
-            if (! $file || ! $file->isValid()) {
-                continue;
-            }
-            if ($file->getSize() > $maxFileSize) {
-                return redirect()->route('tickets.show', $ticket)
-                    ->with('error', 'O arquivo "' . $file->getClientOriginalName() . '" excede o limite de 50 MB.');
-            }
-            $content = $file->get();
-            $filename = $file->getClientOriginalName() ?: 'attachment';
-            $contentType = $file->getMimeType() ?: 'application/octet-stream';
-            $token = $client->uploadFile($filename, $content, $contentType);
-            if ($token !== null) {
-                $uploadTokens[] = $token;
-            }
+        try {
+            $uploadTokens = $commentService->uploadAttachments($files, $client);
+        } catch (\RuntimeException $e) {
+            return redirect()->route('tickets.show', $ticket)->with('error', $e->getMessage());
         }
 
         try {
-            $client->addTicketComment(
-                (int) $ticket->zd_id,
-                $body,
-                $isPublic,
-                $uploadTokens,
-                $authorId
-            );
+            $commentService->addComment($ticket, $body, $isPublic, $uploadTokens, $authorId, $client);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao enviar comentário: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao enviar comentário.');
         }
 
         FetchTicketCommentsJob::dispatch($ticket);
@@ -454,58 +384,51 @@ class TicketController extends Controller
             ->with('success', 'Comentário enviado com sucesso.');
     }
 
-    public function updateStatus(Request $request, ZdTicket $ticket, ZendeskClient $client): RedirectResponse
+    public function updateStatus(UpdateStatusRequest $request, ZdTicket $ticket, ZendeskClient $client, TicketWorkflowService $workflow): RedirectResponse
     {
         $this->authorize('view', $ticket);
 
-        if (! in_array(auth()->user()?->role, ['admin', 'colaborador'])) {
-            abort(403, 'Apenas administradores e colaboradores podem alterar o status.');
-        }
-
-        $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,open,pending,hold,solved,closed'],
-        ]);
+        $validated = $request->validated();
 
         try {
-            $client->updateTicket((int) $ticket->zd_id, ['status' => $validated['status']]);
+            $workflow->updateTicketStatus($ticket, $validated['status'], $client);
         } catch (\Throwable $e) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Erro ao alterar status: ' . $e->getMessage());
+            return $this->redirectWithZendeskError($ticket, $e, 'Erro ao alterar status.');
         }
-
-        $ticket->update([
-            'status' => $validated['status'],
-            'zd_updated_at' => now(),
-        ]);
 
         return redirect()->route('tickets.show', $ticket)
             ->with('success', 'Status atualizado.');
     }
 
-    public function updatePendingAction(Request $request, ZdTicket $ticket): RedirectResponse
+    public function updatePendingAction(UpdatePendingActionRequest $request, ZdTicket $ticket, TicketWorkflowService $workflow): RedirectResponse
     {
         $this->authorize('view', $ticket);
 
-        if (! in_array(auth()->user()?->role, ['admin', 'colaborador'])) {
-            abort(403, 'Apenas administradores e colaboradores podem alterar o campo pendente por.');
-        }
+        $validated = $request->validated();
 
-        $validated = $request->validate([
-            'pending_action' => ['nullable', 'string', 'in:our_side,customer_side,can_close'],
-        ]);
-
-        $analysis = $ticket->analysis()->latest()->first();
-        if (! $analysis) {
+        if (! $workflow->updatePendingAction($ticket, $validated['pending_action'] ?? null)) {
             return redirect()->route('tickets.show', $ticket)
                 ->with('error', 'Nenhuma análise IA encontrada.');
         }
 
-        $analysis->update([
-            'pending_action' => $validated['pending_action'] ?: null,
-        ]);
-
         return redirect()->route('tickets.show', $ticket)
             ->with('success', 'Pendente por atualizado.');
+    }
+
+    private function isStaffUser(): bool
+    {
+        return in_array(auth()->user()?->role, ['admin', 'colaborador'], true);
+    }
+
+    private function redirectWithZendeskError(ZdTicket $ticket, \Throwable $error, string $message): RedirectResponse
+    {
+        Log::warning('TicketController Zendesk operation failed', [
+            'ticket_id' => $ticket->id,
+            'zd_ticket_id' => $ticket->zd_id,
+            'error' => $error->getMessage(),
+        ]);
+
+        return redirect()->route('tickets.show', $ticket)->with('error', $message);
     }
 
     private function computeSimilarTicketsAvgHours(ZdTicket $ticket, ?array $filterSimilarIds = null): ?float

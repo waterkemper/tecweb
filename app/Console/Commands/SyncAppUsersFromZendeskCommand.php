@@ -7,13 +7,15 @@ namespace App\Console\Commands;
 use App\Models\User;
 use App\Models\ZdUser;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
 
 class SyncAppUsersFromZendeskCommand extends Command
 {
     protected $signature = 'zendesk:sync-users-app
-        {--password= : Temporary password for new users (default: changeme)}
-        {--force : Update password for existing users to the temp password}';
+        {--password= : Temporary password for new users (if omitted, a random strong password is generated)}
+        {--force : Update password for existing users to the temp password}
+        {--show-password : Print the temporary password in command output}';
 
     protected $description = 'Create app user for every ZdUser (with temp password). Run zendesk:sync first.';
 
@@ -27,8 +29,12 @@ class SyncAppUsersFromZendeskCommand extends Command
 
     public function handle(): int
     {
-        $tempPassword = $this->option('password') ?? env('SYNC_USER_DEFAULT_PASSWORD', 'changeme');
+        $tempPassword = (string) ($this->option('password') ?: env('SYNC_USER_DEFAULT_PASSWORD', ''));
+        if ($tempPassword === '') {
+            $tempPassword = Str::password(20);
+        }
         $forcePassword = $this->option('force');
+        $showPassword = (bool) $this->option('show-password');
 
         $zdUsers = ZdUser::all();
         $created = 0;
@@ -72,7 +78,11 @@ class SyncAppUsersFromZendeskCommand extends Command
         }
 
         $this->info("Sync complete: {$created} created, {$updated} updated.");
-        $this->info("Temporary password: {$tempPassword} (use user:set-password to change)");
+        if ($showPassword) {
+            $this->warn("Temporary password: {$tempPassword} (use user:set-password to change)");
+        } else {
+            $this->line('Temporary password was applied but not displayed. Use --show-password only in secure terminals.');
+        }
 
         return self::SUCCESS;
     }
