@@ -126,9 +126,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ## Screens
 
 - **Login** - tecDESK branding, email/password auth, "Esqueci minha senha" → recuperação por email
-- **Dashboard** - Stats (New/Open/Pending, hours predicted), by organization, by requester (admin), by severity/category, tickets-by-date chart, high-severity queue. Role-based: admin/colaborador see full stats; cliente sees only their tickets.
-- **Tickets** - List with search, filters (incl. org), **Requester/Organização** columns (admin/colaborador), **Pending** column (Us/Cust/Close). Order by sequence (per requester); drag-and-drop to reorder; new synced tickets get next sequence automatically.
-- **Ticket Detail** - People involved (requester, submitter, assignee, org, collaborators) for admin/colaborador; full conversation; AI panel; **Refresh IA** button (admin only); similar tickets
+- **Dashboard** - Stats (New/Open/Pending, hours predicted, **Atrasados**, **Sem prazo**), by organization, by requester (admin), by severity/category, tickets-by-date chart, **Tickets atrasados** table, high-severity queue. Role-based: admin/colaborador see full stats; cliente sees only their tickets.
+- **Tickets** - List with search, filters (incl. org, **Atrasados**, **Sem prazo**, prazo De/Até), **Prazo** column with overdue/upcoming badges. Order by sequence (per requester) or by prazo; drag-and-drop to reorder; new synced tickets get next sequence automatically.
+- **Ticket Detail** - People involved (requester, submitter, assignee, org, collaborators) for admin/colaborador; **Prazo de entrega** (editável por admin/colaborador); full conversation; AI panel; **Refresh IA** button (admin only); similar tickets
 
 ## Architecture
 

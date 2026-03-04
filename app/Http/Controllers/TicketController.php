@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Tickets\ReorderTicketsRequest;
 use App\Http\Requests\Tickets\StoreTicketRequest;
 use App\Http\Requests\Tickets\StoreTicketCommentRequest;
+use App\Http\Requests\Tickets\UpdateDeadlineRequest;
 use App\Http\Requests\Tickets\UpdatePendingActionRequest;
 use App\Http\Requests\Tickets\UpdateStatusRequest;
 use App\Http\Requests\Tickets\UpdateTagsRequest;
@@ -32,13 +33,13 @@ class TicketController extends Controller
     public function index(Request $request): View
     {
         $statusFilter = $request->get('status');
-        $filters = $request->only(['q', 'status', 'priority', 'category', 'severity', 'tag', 'from', 'to', 'org', 'requester', 'mine']);
+        $filters = $request->only(['q', 'status', 'priority', 'category', 'severity', 'tag', 'from', 'to', 'org', 'requester', 'mine', 'overdue', 'without_deadline', 'due_from', 'due_to']);
         if ($request->user()?->role === 'cliente' && ! $request->has('mine')) {
             $filters['mine'] = 1;
         }
         $sort = $request->get('sort', 'sequence');
         $dir = strtolower($request->get('dir', 'asc')) === 'asc' ? 'asc' : 'desc';
-        $allowedSort = ['zd_id', 'subject', 'status', 'priority', 'zd_created_at', 'zd_updated_at', 'sequence'];
+        $allowedSort = ['zd_id', 'subject', 'status', 'priority', 'zd_created_at', 'zd_updated_at', 'sequence', 'due_at'];
 
         $showResolved = in_array($statusFilter, ['', 'solved', 'closed'])
             || $statusFilter === null;
@@ -58,7 +59,7 @@ class TicketController extends Controller
             ? $this->buildResolvedQuery($request, $statusFilter, $filters)
             : null;
 
-        foreach (['from', 'to'] as $key) {
+        foreach (['from', 'to', 'due_from', 'due_to'] as $key) {
             $parsed = ZdTicket::parseDateInput($request->get($key));
             $filters[$key] = $parsed ?: ($filters[$key] ?? '');
         }
@@ -106,6 +107,14 @@ class TicketController extends Controller
             ->filterTag($request->get('tag'))
             ->filterDateRange($request->get('from'), $request->get('to'));
 
+        if ($request->boolean('overdue')) {
+            $query->filterOverdue();
+        }
+        if ($request->boolean('without_deadline')) {
+            $query->filterWithoutDeadline();
+        }
+        $query->filterDueDateRange($request->get('due_from'), $request->get('due_to'));
+
         if ($statusFilter === 'none') {
             return $query->whereRaw('1=0')->paginate(100)->withQueryString();
         }
@@ -120,6 +129,9 @@ class TicketController extends Controller
                 $query->orderByPriority($dir);
             } elseif ($sort === 'sequence') {
                 $query->orderBySequence($dir);
+            } elseif ($sort === 'due_at') {
+                $query->orderByRaw('due_at IS NULL ' . ($dir === 'asc' ? 'ASC' : 'DESC'))
+                    ->orderBy('due_at', $dir);
             } else {
                 $query->orderBy($sort, $dir);
             }
@@ -146,6 +158,7 @@ class TicketController extends Controller
             ->filterSeverity($request->get('severity'))
             ->filterTag($request->get('tag'))
             ->filterDateRange($request->get('from'), $request->get('to'))
+            ->filterDueDateRange($request->get('due_from'), $request->get('due_to'))
             ->whereIn('status', ['solved', 'closed']);
 
         if ($statusFilter === 'solved') {
@@ -212,6 +225,11 @@ class TicketController extends Controller
             $ticketPayload['comment']['uploads'] = $uploadTokens;
         }
 
+        $dueAt = null;
+        if (! empty($validated['due_at'])) {
+            $dueAt = \Carbon\Carbon::parse($validated['due_at'])->startOfDay();
+        }
+
         try {
             $created = $client->createTicket($ticketPayload);
         } catch (\Throwable $e) {
@@ -235,6 +253,10 @@ class TicketController extends Controller
         SyncZendeskTicketsJob::dispatch(now()->subMinutes(5)->timestamp, true);
 
         $localTicket = ZdTicket::withoutGlobalScope('not_merged')->where('zd_id', $zdTicketId)->first();
+
+        if ($localTicket && $dueAt !== null) {
+            $localTicket->update(['due_at' => $dueAt]);
+        }
 
         if ($localTicket) {
             return redirect()->route('tickets.show', $localTicket)
@@ -366,7 +388,7 @@ class TicketController extends Controller
         return $request->expectsJson()
             ? response()->json(['success' => true])
             : redirect()->route('tickets.index', array_merge(
-                $request->only(['q', 'status', 'priority', 'category', 'severity', 'tag', 'from', 'to']),
+                $request->only(['q', 'status', 'priority', 'category', 'severity', 'tag', 'from', 'to', 'overdue', 'without_deadline', 'due_from', 'due_to']),
                 ['sort' => 'sequence', 'dir' => 'asc']
             ))->with('success', 'Ordem atualizada.');
     }
@@ -513,6 +535,34 @@ class TicketController extends Controller
 
         return redirect()->route('tickets.show', $ticket)
             ->with('success', 'Status atualizado.');
+    }
+
+    public function updateDeadline(UpdateDeadlineRequest $request, ZdTicket $ticket, ZendeskClient $client): RedirectResponse
+    {
+        $this->authorize('view', $ticket);
+
+        $dueAt = $request->boolean('clear')
+            ? null
+            : (isset($request->validated()['due_at']) && $request->validated()['due_at'] !== ''
+                ? \Carbon\Carbon::parse($request->validated()['due_at'])->startOfDay()
+                : null);
+
+        $ticket->update(['due_at' => $dueAt]);
+
+        if ($ticket->type === 'task' && $client) {
+            try {
+                $payload = ['due_at' => $dueAt ? $dueAt->toIso8601String() : null];
+                $client->updateTicket((int) $ticket->zd_id, $payload);
+            } catch (\Throwable $e) {
+                Log::warning('TicketController: failed to sync due_at to Zendesk', [
+                    'ticket_id' => $ticket->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return redirect()->route('tickets.show', $ticket)
+            ->with('success', $dueAt ? 'Prazo de entrega atualizado.' : 'Prazo de entrega removido.');
     }
 
     public function updatePendingAction(UpdatePendingActionRequest $request, ZdTicket $ticket, TicketWorkflowService $workflow): RedirectResponse

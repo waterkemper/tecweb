@@ -10,7 +10,7 @@ class ReorderTicketsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return in_array($this->user()?->role, ['admin', 'colaborador'], true);
+        return in_array($this->user()?->role, ['admin', 'colaborador', 'cliente'], true);
     }
 
     public function rules(): array

@@ -19,8 +19,16 @@ class StoreTicketRequest extends FormRequest
             'subject' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string', 'max:65535'],
             'priority' => ['nullable', 'in:low,normal,high,urgent'],
+            'due_at' => ['nullable', 'date', 'after_or_equal:today'],
             'attachments' => ['nullable', 'array'],
             'attachments.*' => ['file', 'max:51200'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'due_at.after_or_equal' => 'O prazo de entrega não pode ser anterior à data de criação do ticket.',
         ];
     }
 }

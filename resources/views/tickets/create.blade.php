@@ -29,6 +29,15 @@
         </div>
 
         <div>
+            <label for="due_at" class="block text-sm font-medium text-slate-700 mb-1">Prazo de entrega (opcional)</label>
+            <input id="due_at" name="due_at" type="date" value="{{ old('due_at') }}"
+                class="w-48 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            @error('due_at')
+                <p class="text-sm text-red-600 mt-1">{{ $message }}</p>
+            @enderror
+        </div>
+
+        <div>
             <label for="priority" class="block text-sm font-medium text-slate-700 mb-1">Prioridade (opcional)</label>
             <select id="priority" name="priority" class="w-48 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 <option value="">Padrão</option>

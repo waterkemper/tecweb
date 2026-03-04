@@ -42,6 +42,7 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/tickets/{ticket}/internal-effort', [TicketController::class, 'updateInternalEffort'])->name('tickets.internal-effort');
     Route::post('/tickets/{ticket}/comments', [TicketController::class, 'storeComment'])->name('tickets.comments.store');
     Route::post('/tickets/{ticket}/status', [TicketController::class, 'updateStatus'])->name('tickets.status.update');
+    Route::post('/tickets/{ticket}/deadline', [TicketController::class, 'updateDeadline'])->name('tickets.deadline.update');
     Route::post('/tickets/{ticket}/pending-action', [TicketController::class, 'updatePendingAction'])->name('tickets.pending-action.update');
     Route::post('/tickets/reorder', [TicketController::class, 'reorder'])->name('tickets.reorder');
 

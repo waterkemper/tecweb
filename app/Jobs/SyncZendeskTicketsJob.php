@@ -248,6 +248,7 @@ class SyncZendeskTicketsJob implements ShouldQueue
             'via' => $raw['via'] ?? null,
             'solved_at' => $solvedAt ? \Carbon\Carbon::parse($solvedAt) : null,
             'closed_at' => $closedAt ? \Carbon\Carbon::parse($closedAt) : null,
+            'due_at' => isset($raw['due_at']) ? \Carbon\Carbon::parse($raw['due_at']) : ($existing?->due_at ?? null),
             'satisfaction_rating' => $raw['satisfaction_rating'] ?? null,
             'collaborator_ids' => $raw['collaborator_ids'] ?? [],
             'raw_json' => $raw,

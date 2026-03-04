@@ -8,6 +8,7 @@ use App\Models\AiTicketAnalysis;
 use App\Models\ZdOrg;
 use App\Models\ZdTicket;
 use App\Models\ZdUser;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
@@ -15,7 +16,7 @@ class DashboardController extends Controller
 {
     private const ACTIVE_STATUSES = ['new', 'open', 'pending', 'hold'];
 
-    public function index(): View
+    public function index(Request $request): View
     {
         $user = auth()->user();
         $baseQuery = ZdTicket::visibleToUser($user);
@@ -30,6 +31,9 @@ class DashboardController extends Controller
             ->where('zd_updated_at', '>=', now()->subDays(30))
             ->count();
 
+        $overdueCount = (clone $baseQuery)->filterOverdue()->count();
+        $withoutDeadlineCount = (clone $baseQuery)->filterWithoutDeadline()->whereIn('status', self::ACTIVE_STATUSES)->count();
+
         $hoursPredicted = $this->computeHoursPredicted($user);
 
         $highSeverity = (clone $baseQuery)->with(['analysis' => fn ($q) => $q->latest()->limit(1)])
@@ -37,6 +41,39 @@ class DashboardController extends Controller
             ->whereIn('status', ['new', 'open'])
             ->limit(10)
             ->get();
+
+        $overdueQuery = (clone $baseQuery)->filterOverdue()
+            ->with(['analysis' => fn ($q) => $q->latest()->limit(1), 'requester', 'organization']);
+
+        $overdueFilters = $request->only(['overdue_org', 'overdue_requester', 'overdue_status', 'overdue_priority', 'overdue_severity']);
+        if (! empty($overdueFilters['overdue_org']) && in_array($user->role, ['admin', 'colaborador'])) {
+            $overdueQuery->where('org_id', (int) $overdueFilters['overdue_org']);
+        }
+        if (! empty($overdueFilters['overdue_requester']) && $user->role === 'admin') {
+            $overdueQuery->where('requester_id', (int) $overdueFilters['overdue_requester']);
+        }
+        if (! empty($overdueFilters['overdue_status'])) {
+            $overdueQuery->where('status', $overdueFilters['overdue_status']);
+        }
+        if (! empty($overdueFilters['overdue_priority'])) {
+            $overdueQuery->where('priority', $overdueFilters['overdue_priority']);
+        }
+        if (! empty($overdueFilters['overdue_severity'])) {
+            $overdueQuery->whereHas('analysis', fn ($q) => $q->where('severity', $overdueFilters['overdue_severity']));
+        }
+
+        $overdueTickets = $overdueQuery->orderBy('due_at')->limit(20)->get();
+
+        $overdueOrganizations = in_array($user->role, ['admin', 'colaborador'])
+            ? ZdOrg::whereIn('zd_id', (clone $baseQuery)->filterOverdue()->whereNotNull('org_id')->distinct()->pluck('org_id'))
+                ->orderBy('name')
+                ->get()
+            : collect();
+        $overdueRequesters = $user->role === 'admin'
+            ? ZdUser::whereIn('zd_id', (clone $baseQuery)->filterOverdue()->whereNotNull('requester_id')->distinct()->pluck('requester_id'))
+                ->orderBy('name')
+                ->get()
+            : collect();
 
         $byOrg = null;
         $byRequester = null;
@@ -63,8 +100,14 @@ class DashboardController extends Controller
             'pendingCount' => $pendingCount,
             'totalActive' => $totalActive,
             'resolvedLast30' => $resolvedLast30,
+            'overdueCount' => $overdueCount,
+            'withoutDeadlineCount' => $withoutDeadlineCount,
             'hoursPredicted' => $hoursPredicted,
             'highSeverityTickets' => $highSeverity,
+            'overdueTickets' => $overdueTickets,
+            'overdueFilters' => $overdueFilters,
+            'overdueOrganizations' => $overdueOrganizations,
+            'overdueRequesters' => $overdueRequesters,
             'byOrg' => $byOrg,
             'byRequester' => $byRequester,
             'bySeverity' => $bySeverity,

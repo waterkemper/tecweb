@@ -21,6 +21,7 @@
     $severityLabels = ['high' => 'Alta', 'medium' => 'Média', 'low' => 'Baixa'];
     $pendingLabels = ['our_side' => 'Nós', 'customer_side' => 'Cliente', 'can_close' => 'Fechar'];
     $ageLabels = ['too_old' => 'Muito antigo', 'old' => 'Antigo', 'recent' => 'recente', 'fresh' => 'Recente'];
+    $isCliente = auth()->user()?->role === 'cliente';
 @endphp
 <form method="GET" class="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
     @if (!empty($sort))
@@ -87,6 +88,30 @@
             </label>
         </div>
         @endif
+        @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+        <div class="flex-shrink-0 flex items-end gap-3">
+            <label class="inline-flex items-center gap-2 px-3 py-2 cursor-pointer">
+                <input type="checkbox" name="overdue" value="1" {{ ($filters['overdue'] ?? '') ? 'checked' : '' }}
+                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                <span class="text-sm font-medium text-slate-600">Atrasados</span>
+            </label>
+            <label class="inline-flex items-center gap-2 px-3 py-2 cursor-pointer">
+                <input type="checkbox" name="without_deadline" value="1" {{ ($filters['without_deadline'] ?? '') ? 'checked' : '' }}
+                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                <span class="text-sm font-medium text-slate-600">Sem prazo</span>
+            </label>
+        </div>
+        <div class="flex-shrink-0 flex items-end gap-1">
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Prazo de</label>
+                <input type="date" name="due_from" value="{{ $filters['due_from'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Prazo até</label>
+                <input type="date" name="due_to" value="{{ $filters['due_to'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+        </div>
+        @endif
         <div class="flex-shrink-0 flex items-end gap-1">
             <div>
                 <label class="block text-xs font-medium text-slate-500 mb-0.5">De</label>
@@ -103,6 +128,12 @@
 
 @if ($tickets->isNotEmpty())
 <h2 class="text-lg font-semibold mb-3">Tickets ativos</h2>
+@php $showOrderBadge = ($sort ?? '') === 'sequence' && auth()->user(); @endphp
+@if ($showOrderBadge)
+<div class="mb-3 px-3 py-2 bg-blue-100 text-blue-800 rounded-md text-sm font-medium">
+    Modo ordenação: arraste as linhas ou use os botões ↑↓
+</div>
+@endif
 <table>
     <thead>
         <tr>
@@ -114,20 +145,29 @@
             <th><a href="{{ $sortUrl('subject') }}" class="text-blue-600 hover:underline">Assunto{{ $sortIcon('subject') }}</a></th>
             <th><a href="{{ $sortUrl('status') }}" class="text-blue-600 hover:underline">Status{{ $sortIcon('status') }}</a></th>
             <th><a href="{{ $sortUrl('priority') }}" class="text-blue-600 hover:underline">Prioridade{{ $sortIcon('priority') }}</a></th>
+            @if (!$isCliente)
             <th>Categoria</th>
+            @endif
             <th>Gravidade</th>
+            @if (!$isCliente)
             <th>Pendente</th>
+            @endif
             <th><a href="{{ $sortUrl('zd_created_at') }}" class="text-blue-600 hover:underline">Criado{{ $sortIcon('zd_created_at') }}</a></th>
             <th><a href="{{ $sortUrl('zd_updated_at') }}" class="text-blue-600 hover:underline">Atualizado{{ $sortIcon('zd_updated_at') }}</a></th>
+            <th><a href="{{ $sortUrl('due_at') }}" class="text-blue-600 hover:underline">Prazo{{ $sortIcon('due_at') }}</a></th>
+            <th>Horas (máx)</th>
             <th>Idade</th>
         </tr>
     </thead>
     <tbody>
+        @php $totalHours = 0; @endphp
         @foreach ($tickets as $ticket)
         @php
             $age = $ticket->age_status;
             $rowClass = in_array($age, ['old', 'too_old']) ? 'bg-amber-50' : '';
             $analysis = $ticket->analysis->first();
+            $hoursMax = $analysis ? (float) ($analysis->internal_effort_max ?? $analysis->internal_effort_min ?? 0) : 0;
+            if ($hoursMax > 0) { $totalHours += $hoursMax; }
             $openQuestions = $analysis?->open_questions_list ?? [];
             if (empty($openQuestions) && $analysis?->open_questions) {
                 $openQuestions = array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $analysis->open_questions)));
@@ -143,16 +183,39 @@
                 'actions' => array_values($actionsNeeded),
             ]);
         @endphp
-        <tr class="{{ $rowClass }} @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']) && ($sort ?? '') === 'sequence') sortable-row cursor-grab @endif ticket-row" data-ticket-id="{{ $ticket->id }}" data-ai-preview="{{ e($aiPreview) }}">
-            <td class="text-gray-400">⋮⋮</td>
-            <td class="text-sm text-gray-600">{{ $ticket->ticketOrder?->sequence !== null ? ($ticket->ticketOrder->sequence + 1) : '-' }}</td>
+        @php
+            $reqId = $ticket->requester_id ?? 0;
+            $items = $tickets->items();
+            $prevReq = $loop->index > 0 ? ($items[$loop->index - 1]->requester_id ?? 0) : null;
+            $nextReq = isset($items[$loop->index + 1]) ? ($items[$loop->index + 1]->requester_id ?? 0) : null;
+            $isFirstInRequester = $prevReq === null || $prevReq !== $reqId;
+            $isLastInRequester = $nextReq === null || $nextReq !== $reqId;
+            $showOrderBtns = auth()->user() && ($sort ?? '') === 'sequence';
+        @endphp
+        <tr class="{{ $rowClass }} @if ($showOrderBtns) sortable-row cursor-grab @endif ticket-row" data-ticket-id="{{ $ticket->id }}" data-requester-id="{{ $reqId }}" data-ai-preview="{{ e($aiPreview) }}">
+            <td class="text-gray-400" title="{{ $showOrderBtns ? 'Arraste para reordenar' : '' }}">⋮⋮</td>
+            <td class="text-sm text-gray-600 {{ $showOrderBtns ? 'bg-blue-50' : '' }}">
+                {{ $ticket->ticketOrder?->sequence !== null ? ($ticket->ticketOrder->sequence + 1) : '-' }}
+                @if ($showOrderBtns)
+                <span class="ml-1 inline-flex gap-0.5 items-center" role="group">
+                    @if (!$isFirstInRequester)
+                    <button type="button" class="order-btn order-topo px-1.5 py-0.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 shadow-sm" title="Mover para topo" data-action="topo">↑ Topo</button>
+                    @endif
+                    @if (!$isLastInRequester)
+                    <button type="button" class="order-btn order-fundo px-1.5 py-0.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 shadow-sm" title="Mover para fundo" data-action="fundo">↓ Fundo</button>
+                    @endif
+                </span>
+                @endif
+            </td>
             <td><a href="{{ route('tickets.show', $ticket) }}" class="text-blue-600 hover:underline">#{{ $ticket->zd_id }}</a></td>
             <td class="text-sm">{{ $ticket->requester?->name ?? $ticket->requester?->email ?? '-' }}</td>
             <td class="text-sm">{{ $ticket->organization?->name ?? '-' }}</td>
             <td>{{ Str::limit($ticket->subject, 60) }}</td>
             <td><span class="badge badge-{{ $ticket->status }}">{{ $statusLabels[$ticket->status] ?? $ticket->status }}</span></td>
             <td>{{ $priorityLabels[$ticket->priority] ?? $ticket->priority ?? '-' }}</td>
+            @if (!$isCliente)
             <td>{{ $ticket->analysis->first()?->category ?? '-' }}</td>
+            @endif
             <td>
                 @if ($ticket->analysis->first()?->severity)
                     <span class="badge badge-{{ $ticket->analysis->first()->severity }}">{{ $severityLabels[$ticket->analysis->first()->severity] ?? $ticket->analysis->first()->severity }}</span>
@@ -160,6 +223,7 @@
                     -
                 @endif
             </td>
+            @if (!$isCliente)
             <td>
                 @php $pa = $ticket->analysis->first()?->pending_action; @endphp
                 @if ($pa === 'our_side')
@@ -172,8 +236,29 @@
                     <span class="text-xs text-gray-400">-</span>
                 @endif
             </td>
+            @endif
             <td class="text-sm">{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('d/m/y H:i') ?? '-' }}</td>
             <td class="text-sm">{{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('d/m/y H:i') ?? '-' }}</td>
+            <td class="text-sm">
+                @if ($ticket->due_at)
+                    @if ($ticket->is_overdue)
+                        <span class="badge" style="background:#fee2e2;color:#991b1b;" title="{{ $ticket->days_overdue }} dias de atraso">{{ $ticket->due_at->format('d/m/y') }} (atrasado)</span>
+                    @elseif ($ticket->days_overdue !== null && $ticket->days_overdue >= -2 && $ticket->days_overdue < 0)
+                        <span class="badge" style="background:#fef3c7;color:#92400e;" title="Faltam {{ abs($ticket->days_overdue) }} dias">{{ $ticket->due_at->format('d/m/y') }}</span>
+                    @else
+                        {{ $ticket->due_at->format('d/m/y') }}
+                    @endif
+                @else
+                    —
+                @endif
+            </td>
+            <td class="text-sm text-right">
+                @if ($hoursMax > 0)
+                    {{ number_format($hoursMax, 1) }}h
+                @else
+                    —
+                @endif
+            </td>
             <td>
                 @if (!in_array($ticket->status ?? '', ['solved', 'closed']))
                     @if ($age === 'too_old')
@@ -195,6 +280,11 @@
         @endforeach
     </tbody>
 </table>
+@if ($totalHours > 0)
+<div class="mt-2 py-2 px-3 bg-slate-100 rounded-b text-sm font-medium text-slate-700">
+    Total previsão (página atual): {{ number_format($totalHours, 1) }}h
+</div>
+@endif
 
 <div class="mt-4">
     {{ $tickets->links() }}
@@ -215,15 +305,20 @@
                 <th>Assunto</th>
                 <th>Status</th>
                 <th>Prioridade</th>
+                @if (!$isCliente)
                 <th>Categoria</th>
+                @endif
                 <th>Criado (ZD)</th>
                 <th>Atualizado (ZD)</th>
+                <th>Prazo</th>
+                <th>Horas (máx)</th>
             </tr>
         </thead>
         <tbody>
             @forelse ($resolvedTickets as $ticket)
             @php
                 $resolvedAnalysis = $ticket->analysis->first();
+                $resolvedHoursMax = $resolvedAnalysis ? (float) ($resolvedAnalysis->internal_effort_max ?? $resolvedAnalysis->internal_effort_min ?? 0) : 0;
                 $resolvedOpenQ = $resolvedAnalysis?->open_questions_list ?? [];
                 if (empty($resolvedOpenQ) && $resolvedAnalysis?->open_questions) {
                     $resolvedOpenQ = array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $resolvedAnalysis->open_questions)));
@@ -246,13 +341,23 @@
                 <td>{{ Str::limit($ticket->subject, 60) }}</td>
                 <td><span class="badge badge-{{ $ticket->status }}">{{ $statusLabels[$ticket->status] ?? $ticket->status }}</span></td>
                 <td>{{ $priorityLabels[$ticket->priority] ?? $ticket->priority ?? '-' }}</td>
+                @if (!$isCliente)
                 <td>{{ $ticket->analysis->first()?->category ?? '-' }}</td>
+                @endif
                 <td class="text-sm">{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('d/m/y H:i') ?? '-' }}</td>
                 <td class="text-sm">{{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('d/m/y H:i') ?? '-' }}</td>
+                <td class="text-sm">{{ $ticket->due_at?->format('d/m/y') ?? '—' }}</td>
+                <td class="text-sm text-right">
+                    @if ($resolvedHoursMax > 0)
+                        {{ number_format($resolvedHoursMax, 1) }}h
+                    @else
+                        —
+                    @endif
+                </td>
             </tr>
             @empty
             <tr>
-                <td colspan="9" class="text-center text-gray-500 py-4">Nenhum ticket resolvido/fechado.</td>
+                <td colspan="{{ $isCliente ? 10 : 11 }}" class="text-center text-gray-500 py-4">Nenhum ticket resolvido/fechado.</td>
             </tr>
             @endforelse
         </tbody>
@@ -349,7 +454,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-@if ($tickets->isNotEmpty() && ($sort ?? '') === 'sequence' && auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+@if ($tickets->isNotEmpty() && ($sort ?? '') === 'sequence' && auth()->user())
 <meta name="reorder-url" content="{{ route('tickets.reorder') }}">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
@@ -358,26 +463,88 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!tbody) return;
     const reorderUrl = document.querySelector('meta[name="reorder-url"]')?.content || '';
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    function getRows() {
+        return Array.from(tbody.querySelectorAll('tr.sortable-row'));
+    }
+
+    function getTicketIds() {
+        return getRows().map(r => r.dataset.ticketId);
+    }
+
+    function updateSequenceNumbers() {
+        const rows = getRows();
+        const seqByRequester = {};
+        rows.forEach(function(row) {
+            const reqId = row.dataset.requesterId || '0';
+            seqByRequester[reqId] = (seqByRequester[reqId] || 0) + 1;
+            const ordemCell = row.querySelector('td:nth-child(2)');
+            if (ordemCell) {
+                const firstChild = ordemCell.firstChild;
+                if (firstChild && firstChild.nodeType === 3) {
+                    firstChild.textContent = seqByRequester[reqId] + ' ';
+                }
+            }
+        });
+    }
+
+    function sendReorder(ids) {
+        fetch(reorderUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ ticket_ids: ids })
+        }).then(r => r.json()).then(function(data) {
+            if (data.success) {
+                ids.forEach(function(id) {
+                    const row = tbody.querySelector('tr.sortable-row[data-ticket-id="' + id + '"]');
+                    if (row) tbody.appendChild(row);
+                });
+                updateSequenceNumbers();
+            }
+        });
+    }
+
+    tbody.addEventListener('click', function(evt) {
+        const btn = evt.target.closest('.order-btn');
+        if (!btn) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        const row = btn.closest('tr');
+        const action = btn.dataset.action;
+        const rows = getRows();
+        const requesterId = row.dataset.requesterId || '0';
+        const sameRequester = rows.filter(function(r) { return (r.dataset.requesterId || '0') === requesterId; });
+        const posInGroup = sameRequester.indexOf(row);
+
+        let newIds;
+        if (action === 'topo') {
+            const others = sameRequester.filter(function(_, i) { return i !== posInGroup; });
+            const reordered = [row].concat(others);
+            const before = rows.slice(0, rows.indexOf(sameRequester[0]));
+            const after = rows.slice(rows.indexOf(sameRequester[sameRequester.length - 1]) + 1);
+            newIds = before.map(function(r) { return r.dataset.ticketId; }).concat(reordered.map(function(r) { return r.dataset.ticketId; }), after.map(function(r) { return r.dataset.ticketId; }));
+        } else if (action === 'fundo') {
+            const others = sameRequester.filter(function(_, i) { return i !== posInGroup; });
+            const reordered = others.concat([row]);
+            const before = rows.slice(0, rows.indexOf(sameRequester[0]));
+            const after = rows.slice(rows.indexOf(sameRequester[sameRequester.length - 1]) + 1);
+            newIds = before.map(function(r) { return r.dataset.ticketId; }).concat(reordered.map(function(r) { return r.dataset.ticketId; }), after.map(function(r) { return r.dataset.ticketId; }));
+        } else {
+            return;
+        }
+        sendReorder(newIds);
+    });
+
     new Sortable(tbody, {
         animation: 150,
         filter: 'a, input, select, button',
         preventOnFilter: true,
         onEnd: function() {
-            const rows = tbody.querySelectorAll('tr.sortable-row');
-            const ids = Array.from(rows).map(r => r.dataset.ticketId);
-            fetch(reorderUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': csrfToken,
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ ticket_ids: ids })
-            }).then(r => r.json()).then(data => {
-                if (data.success) {
-                    location.reload();
-                }
-            });
+            sendReorder(getTicketIds());
         }
     });
 });

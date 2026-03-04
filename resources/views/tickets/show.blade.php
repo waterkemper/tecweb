@@ -108,6 +108,26 @@
         <span><strong>Criado (Zendesk):</strong> {{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('d/m/y H:i') ?? '-' }}</span>
         <span>|</span>
         <span><strong>Atualizado (Zendesk):</strong> {{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('d/m/y H:i') ?? '-' }}</span>
+        <span>|</span>
+        <span><strong>Prazo de entrega:</strong>
+            @if ($ticket->due_at)
+                {{ $ticket->due_at->format('d/m/y') }}
+                @if ($ticket->is_overdue)
+                    <span class="badge ml-1" style="background:#fee2e2;color:#991b1b;">Atrasado ({{ $ticket->days_overdue }}d)</span>
+                @endif
+            @else
+                <span class="text-slate-400">Não definido</span>
+            @endif
+        </span>
+        <span>|</span>
+        <span><strong>Previsão de horas:</strong>
+            @php $a = $ticket->analysis->first(); $h = $a ? (float)($a->internal_effort_max ?? $a->internal_effort_min ?? 0) : 0; @endphp
+            @if ($h > 0)
+                {{ number_format($h, 1) }}h
+            @else
+                <span class="text-slate-400">—</span>
+            @endif
+        </span>
         @if (!in_array($ticket->status ?? '', ['solved', 'closed']) && ($ticket->zd_updated_at ?? $ticket->updated_at))
             @php $age = $ticket->age_status; @endphp
             @if ($age === 'old')
@@ -121,6 +141,49 @@
             @endif
         @endif
     </div>
+
+    @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+    <div class="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+        <h3 class="text-sm font-semibold text-slate-800 mb-3">Prazo de entrega e Previsão de horas</h3>
+        <div class="flex flex-wrap gap-8 items-start">
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">Prazo de entrega</label>
+                <form action="{{ route('tickets.deadline.update', $ticket) }}" method="post" class="flex flex-wrap gap-2 items-center">
+                    @csrf
+                    <input type="date" name="due_at" value="{{ $ticket->due_at?->format('Y-m-d') }}"
+                        class="px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <button type="submit" class="px-3 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                        Salvar prazo
+                    </button>
+                    @if ($ticket->due_at)
+                    <button type="submit" name="clear" value="1" class="px-3 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors">
+                        Remover prazo
+                    </button>
+                    @endif
+                </form>
+                <p class="text-xs text-slate-500 mt-1">Deixe vazio e clique em "Remover prazo" para limpar.</p>
+            </div>
+            @if ($analysis)
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">Previsão de horas (interna)</label>
+                <form action="{{ route('tickets.internal-effort', $ticket) }}" method="post" class="inline-flex items-center gap-2">
+                    @csrf
+                    <input type="number" name="internal_effort_min" step="0.5" min="0" placeholder="min" value="{{ $analysis->internal_effort_min }}"
+                        class="w-20 px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <span class="text-gray-400">–</span>
+                    <input type="number" name="internal_effort_max" step="0.5" min="0" placeholder="max" value="{{ $analysis->internal_effort_max }}"
+                        class="w-20 px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <span class="text-sm text-gray-500">h</span>
+                    <button type="submit" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Salvar</button>
+                </form>
+                @if ($analysis->effort_min !== null || $analysis->effort_max !== null)
+                <p class="text-xs text-slate-500 mt-1">Previsão IA: {{ $analysis->effort_min ?? '-' }}-{{ $analysis->effort_max ?? '-' }}h</p>
+                @endif
+            </div>
+            @endif
+        </div>
+    </div>
+    @endif
 
     {{-- Tags --}}
     <div class="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
@@ -264,36 +327,6 @@
                     <span class="inline-flex items-center px-2.5 py-0.5 rounded text-sm font-medium bg-green-100 text-green-800" title="Última resposta do cliente sugere que podemos fechar">Pode fechar</span>
                 @endif
             @endif
-        </div>
-
-        {{-- Previsões de esforço --}}
-        <div class="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-            <h4 class="text-sm font-semibold text-gray-700 mb-3">Previsão de horas</h4>
-            <div class="flex flex-wrap items-center gap-4">
-                @if ($analysis->effort_min !== null || $analysis->effort_max !== null)
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm text-gray-600">Previsão IA:</span>
-                        <span class="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-800 rounded-md font-medium text-sm">{{ $analysis->effort_min ?? '-' }}-{{ $analysis->effort_max ?? '-' }}h</span>
-                    </div>
-                @endif
-                <div class="flex items-center gap-2">
-                    <span class="text-sm text-gray-600">Previsão interna:</span>
-                    @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-                    <form action="{{ route('tickets.internal-effort', $ticket) }}" method="post" class="inline-flex items-center gap-2">
-                        @csrf
-                        <input type="number" name="internal_effort_min" step="0.5" min="0" placeholder="min" value="{{ $analysis->internal_effort_min }}"
-                            class="w-20 px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
-                        <span class="text-gray-400">–</span>
-                        <input type="number" name="internal_effort_max" step="0.5" min="0" placeholder="max" value="{{ $analysis->internal_effort_max }}"
-                            class="w-20 px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
-                        <span class="text-sm text-gray-500">h</span>
-                        <button type="submit" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Salvar</button>
-                    </form>
-                    @else
-                    <span class="inline-flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md font-medium text-sm">{{ $analysis->internal_effort_min ?? '-' }}-{{ $analysis->internal_effort_max ?? '-' }}h</span>
-                    @endif
-                </div>
-            </div>
         </div>
 
         <div class="flex flex-wrap gap-2 mb-3 text-sm">

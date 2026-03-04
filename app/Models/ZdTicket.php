@@ -43,6 +43,7 @@ class ZdTicket extends Model
         'via',
         'solved_at',
         'closed_at',
+        'due_at',
         'satisfaction_rating',
         'ai_needs_refresh',
         'raw_json',
@@ -59,6 +60,7 @@ class ZdTicket extends Model
         'satisfaction_rating' => 'array',
         'solved_at' => 'datetime',
         'closed_at' => 'datetime',
+        'due_at' => 'datetime',
         'ai_needs_refresh' => 'boolean',
         'raw_json' => 'array',
         'zd_created_at' => 'datetime',
@@ -170,6 +172,41 @@ class ZdTicket extends Model
         }
 
         return implode("\n\n", $parts);
+    }
+
+    /**
+     * Whether ticket has a deadline set.
+     */
+    public function getHasDeadlineAttribute(): bool
+    {
+        return $this->due_at !== null;
+    }
+
+    /**
+     * Whether ticket is overdue (active with due_at in the past).
+     */
+    public function getIsOverdueAttribute(): bool
+    {
+        if ($this->due_at === null) {
+            return false;
+        }
+        if (! in_array($this->status ?? '', ['new', 'open', 'pending', 'hold'])) {
+            return false;
+        }
+
+        return $this->due_at->isPast();
+    }
+
+    /**
+     * Days overdue (positive) or days until due (negative). Null if no due_at.
+     */
+    public function getDaysOverdueAttribute(): ?int
+    {
+        if ($this->due_at === null) {
+            return null;
+        }
+
+        return (int) $this->due_at->diffInDays(now(), false);
     }
 
     /**
@@ -290,6 +327,32 @@ class ZdTicket extends Model
     public function scopeFilterSeverity($query, ?string $severity)
     {
         return $severity ? $query->whereHas('analysis', fn ($q) => $q->where('severity', $severity)) : $query;
+    }
+
+    public function scopeFilterOverdue($query)
+    {
+        return $query->whereIn('status', ['new', 'open', 'pending', 'hold'])
+            ->whereNotNull('due_at')
+            ->where('due_at', '<', now());
+    }
+
+    public function scopeFilterWithoutDeadline($query)
+    {
+        return $query->whereNull('due_at');
+    }
+
+    public function scopeFilterDueDateRange($query, ?string $from, ?string $to)
+    {
+        $fromDate = self::parseDateInput($from);
+        $toDate = self::parseDateInput($to);
+        if ($fromDate) {
+            $query->whereDate('due_at', '>=', $fromDate);
+        }
+        if ($toDate) {
+            $query->whereDate('due_at', '<=', $toDate);
+        }
+
+        return $query;
     }
 
     /**

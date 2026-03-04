@@ -6,7 +6,7 @@
 <h1 class="text-2xl font-bold mb-6">tecDESK Dashboard</h1>
 
 {{-- Cards de resumo --}}
-<div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+<div class="grid grid-cols-2 md:grid-cols-7 gap-4 mb-8">
     <div class="stat-card">
         <div class="text-sm text-gray-600">New</div>
         <div class="stat-value">{{ $newCount }}</div>
@@ -26,6 +26,26 @@
     <div class="stat-card">
         <div class="text-sm text-gray-600">Resolvidos (30d)</div>
         <div class="stat-value">{{ $resolvedLast30 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="text-sm text-gray-600">Atrasados</div>
+        <div class="stat-value">
+            @if (($overdueCount ?? 0) > 0)
+                <a href="{{ route('tickets.index', ['overdue' => 1]) }}" class="text-red-600 hover:underline">{{ $overdueCount }}</a>
+            @else
+                {{ $overdueCount ?? 0 }}
+            @endif
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="text-sm text-gray-600">Sem prazo</div>
+        <div class="stat-value">
+            @if (($withoutDeadlineCount ?? 0) > 0)
+                <a href="{{ route('tickets.index', ['without_deadline' => 1]) }}" class="text-amber-600 hover:underline">{{ $withoutDeadlineCount }}</a>
+            @else
+                {{ $withoutDeadlineCount ?? 0 }}
+            @endif
+        </div>
     </div>
 </div>
 
@@ -133,6 +153,119 @@
         </div>
     @endif
 
+    {{-- Tickets atrasados --}}
+    <div class="card mb-8">
+        <h2 class="text-lg font-semibold mb-4">Tickets atrasados</h2>
+        <form method="GET" class="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200 flex flex-wrap gap-3 items-end">
+            @if (($overdueOrganizations ?? collect())->isNotEmpty())
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Organização</label>
+                <select name="overdue_org" class="w-44 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todas</option>
+                    @foreach ($overdueOrganizations as $org)
+                    <option value="{{ $org->zd_id }}" {{ ($overdueFilters['overdue_org'] ?? '') == $org->zd_id ? 'selected' : '' }}>{{ $org->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            @endif
+            @if (auth()->user()?->role === 'admin' && ($overdueRequesters ?? collect())->isNotEmpty())
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Solicitante</label>
+                <select name="overdue_requester" class="w-44 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todos</option>
+                    @foreach ($overdueRequesters as $req)
+                    <option value="{{ $req->zd_id }}" {{ ($overdueFilters['overdue_requester'] ?? '') == $req->zd_id ? 'selected' : '' }}>{{ $req->name ?? $req->email ?? "#{$req->zd_id}" }}</option>
+                    @endforeach
+                </select>
+            </div>
+            @endif
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Status</label>
+                <select name="overdue_status" class="w-32 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todos</option>
+                    <option value="new" {{ ($overdueFilters['overdue_status'] ?? '') === 'new' ? 'selected' : '' }}>Novo</option>
+                    <option value="open" {{ ($overdueFilters['overdue_status'] ?? '') === 'open' ? 'selected' : '' }}>Aberto</option>
+                    <option value="pending" {{ ($overdueFilters['overdue_status'] ?? '') === 'pending' ? 'selected' : '' }}>Pendente</option>
+                    <option value="hold" {{ ($overdueFilters['overdue_status'] ?? '') === 'hold' ? 'selected' : '' }}>Aguardando</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Prioridade</label>
+                <select name="overdue_priority" class="w-28 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todas</option>
+                    <option value="urgent" {{ ($overdueFilters['overdue_priority'] ?? '') === 'urgent' ? 'selected' : '' }}>Urgente</option>
+                    <option value="high" {{ ($overdueFilters['overdue_priority'] ?? '') === 'high' ? 'selected' : '' }}>Alta</option>
+                    <option value="normal" {{ ($overdueFilters['overdue_priority'] ?? '') === 'normal' ? 'selected' : '' }}>Normal</option>
+                    <option value="low" {{ ($overdueFilters['overdue_priority'] ?? '') === 'low' ? 'selected' : '' }}>Baixa</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Severidade</label>
+                <select name="overdue_severity" class="w-28 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todas</option>
+                    <option value="critical" {{ ($overdueFilters['overdue_severity'] ?? '') === 'critical' ? 'selected' : '' }}>Critical</option>
+                    <option value="high" {{ ($overdueFilters['overdue_severity'] ?? '') === 'high' ? 'selected' : '' }}>High</option>
+                    <option value="medium" {{ ($overdueFilters['overdue_severity'] ?? '') === 'medium' ? 'selected' : '' }}>Medium</option>
+                    <option value="low" {{ ($overdueFilters['overdue_severity'] ?? '') === 'low' ? 'selected' : '' }}>Low</option>
+                </select>
+            </div>
+            <button type="submit" class="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">Filtrar</button>
+        </form>
+        @if (($overdueTickets ?? collect())->isNotEmpty())
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Subject</th>
+                    <th>Solicitante</th>
+                    <th>Organização</th>
+                    <th>Prazo</th>
+                    <th>Dias atraso</th>
+                    <th>Status</th>
+                    <th>Prioridade</th>
+                    <th>Severidade</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($overdueTickets as $ticket)
+                @php $analysis = $ticket->analysis->first(); @endphp
+                <tr>
+                    <td><a href="{{ route('tickets.show', $ticket) }}" class="text-blue-600 hover:underline">#{{ $ticket->zd_id }}</a></td>
+                    <td>{{ Str::limit($ticket->subject, 50) }}</td>
+                    <td class="text-sm">{{ $ticket->requester?->name ?? $ticket->requester?->email ?? '—' }}</td>
+                    <td class="text-sm">{{ $ticket->organization?->name ?? '—' }}</td>
+                    <td>{{ $ticket->due_at?->format('d/m/y') ?? '—' }}</td>
+                    <td>{{ $ticket->days_overdue ?? '—' }}d</td>
+                    <td><span class="badge badge-{{ $ticket->status }}">{{ $ticket->status }}</span></td>
+                    <td>{{ $ticket->priority ?? '—' }}</td>
+                    <td>
+                        @if ($analysis?->severity)
+                            <span class="badge badge-{{ $analysis->severity }}">{{ $analysis->severity }}</span>
+                        @else
+                            —
+                        @endif
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+        @php
+            $overdueLinkParams = ['overdue' => 1];
+            $f = $overdueFilters ?? [];
+            if (!empty($f['overdue_org'])) $overdueLinkParams['org'] = $f['overdue_org'];
+            if (!empty($f['overdue_requester'])) $overdueLinkParams['requester'] = $f['overdue_requester'];
+            if (!empty($f['overdue_status'])) $overdueLinkParams['status'] = $f['overdue_status'];
+            if (!empty($f['overdue_priority'])) $overdueLinkParams['priority'] = $f['overdue_priority'];
+            if (!empty($f['overdue_severity'])) $overdueLinkParams['severity'] = $f['overdue_severity'];
+        @endphp
+        <p class="text-sm text-gray-500 mt-2">
+            <a href="{{ route('tickets.index', $overdueLinkParams) }}" class="text-blue-600 hover:underline">Ver todos os atrasados</a>
+        </p>
+        @else
+        <p class="text-gray-500 py-4">Nenhum ticket atrasado{{ !empty(array_filter($overdueFilters ?? [])) ? ' com os filtros aplicados' : '' }}.</p>
+        @endif
+    </div>
+
     {{-- Fila alta severidade --}}
     <div class="card mb-8">
         <h2 class="text-lg font-semibold mb-4">Fila alta severidade</h2>
@@ -172,6 +305,70 @@
     </div>
 @else
     {{-- Cliente: visão simplificada --}}
+    <div class="card mb-8">
+        <h2 class="text-lg font-semibold mb-4">Meus tickets atrasados</h2>
+        <form method="GET" class="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200 flex flex-wrap gap-3 items-end">
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Status</label>
+                <select name="overdue_status" class="w-32 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todos</option>
+                    <option value="new" {{ ($overdueFilters['overdue_status'] ?? '') === 'new' ? 'selected' : '' }}>Novo</option>
+                    <option value="open" {{ ($overdueFilters['overdue_status'] ?? '') === 'open' ? 'selected' : '' }}>Aberto</option>
+                    <option value="pending" {{ ($overdueFilters['overdue_status'] ?? '') === 'pending' ? 'selected' : '' }}>Pendente</option>
+                    <option value="hold" {{ ($overdueFilters['overdue_status'] ?? '') === 'hold' ? 'selected' : '' }}>Aguardando</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-500 mb-0.5">Prioridade</label>
+                <select name="overdue_priority" class="w-28 px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Todas</option>
+                    <option value="urgent" {{ ($overdueFilters['overdue_priority'] ?? '') === 'urgent' ? 'selected' : '' }}>Urgente</option>
+                    <option value="high" {{ ($overdueFilters['overdue_priority'] ?? '') === 'high' ? 'selected' : '' }}>Alta</option>
+                    <option value="normal" {{ ($overdueFilters['overdue_priority'] ?? '') === 'normal' ? 'selected' : '' }}>Normal</option>
+                    <option value="low" {{ ($overdueFilters['overdue_priority'] ?? '') === 'low' ? 'selected' : '' }}>Baixa</option>
+                </select>
+            </div>
+            <button type="submit" class="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">Filtrar</button>
+        </form>
+        @if (($overdueTickets ?? collect())->isNotEmpty())
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Subject</th>
+                    <th>Prazo</th>
+                    <th>Dias atraso</th>
+                    <th>Status</th>
+                    <th>Prioridade</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($overdueTickets as $ticket)
+                <tr>
+                    <td><a href="{{ route('tickets.show', $ticket) }}" class="text-blue-600 hover:underline">#{{ $ticket->zd_id }}</a></td>
+                    <td>{{ Str::limit($ticket->subject, 50) }}</td>
+                    <td>{{ $ticket->due_at?->format('d/m/y') ?? '—' }}</td>
+                    <td>{{ $ticket->days_overdue ?? '—' }}d</td>
+                    <td><span class="badge badge-{{ $ticket->status }}">{{ $ticket->status }}</span></td>
+                    <td>{{ $ticket->priority ?? '—' }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+        @php
+            $overdueLinkParams = ['overdue' => 1];
+            $f = $overdueFilters ?? [];
+            if (!empty($f['overdue_status'])) $overdueLinkParams['status'] = $f['overdue_status'];
+            if (!empty($f['overdue_priority'])) $overdueLinkParams['priority'] = $f['overdue_priority'];
+        @endphp
+        <p class="text-sm text-gray-500 mt-2">
+            <a href="{{ route('tickets.index', $overdueLinkParams) }}" class="text-blue-600 hover:underline">Ver todos os atrasados</a>
+        </p>
+        @else
+        <p class="text-gray-500 py-4">Nenhum ticket atrasado{{ !empty(array_filter($overdueFilters ?? [])) ? ' com os filtros aplicados' : '' }}.</p>
+        @endif
+    </div>
+
     @if (!empty($ticketsByDate))
         <div class="card mb-8">
             <h2 class="text-lg font-semibold mb-4">Meus tickets criados (últimos 30 dias)</h2>

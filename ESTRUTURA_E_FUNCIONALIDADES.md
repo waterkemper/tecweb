@@ -35,7 +35,7 @@ Zendesk/
 | Model | Descrição |
 |-------|-----------|
 | `User` | Usuário do app (admin, colaborador, cliente). Vinculado a ZdUser por email. |
-| `ZdTicket` | Ticket do Zendesk (com scopes `not_deleted`, `not_merged`, `visibleToUser`) |
+| `ZdTicket` | Ticket do Zendesk (com scopes `not_deleted`, `not_merged`, `visibleToUser`, `filterOverdue`, `filterWithoutDeadline`). Campo `due_at` (prazo de entrega). |
 | `ZdTicketComment` | Comentários do ticket |
 | `ZdUser` | Usuários Zendesk |
 | `ZdOrg` | Organizações Zendesk |
@@ -114,53 +114,62 @@ Zendesk/
 
 ### 1. Dashboard
 
-- **Cards**: New, Open, Pending/Hold, Total ativos, Resolvidos (30d), Horas previstas
-- **Admin**: Por organização (top 10), Por requester (top 10), Por severidade, Top categorias, Gráfico tickets por data (30d), Fila alta severidade
+- **Cards**: New, Open, Pending/Hold, Total ativos, Resolvidos (30d), **Atrasados** (tickets ativos com prazo vencido), **Sem prazo** (ativos sem prazo definido), Horas previstas
+- **Admin**: Por organização (top 10), Por requester (top 10), Por severidade, Top categorias, Gráfico tickets por data (30d), **Tabela Tickets atrasados**, Fila alta severidade
 - **Colaborador**: Igual ao admin, exceto "Por requester"
-- **Cliente**: Cards dos seus tickets, Horas previstas, Gráfico dos seus tickets por data, Meus tickets prioritários
+- **Cliente**: Cards dos seus tickets (incl. Atrasados, Sem prazo), Horas previstas, **Meus tickets atrasados**, Gráfico dos seus tickets por data, Meus tickets prioritários
 
 ### 2. Sync Zendesk
 
 - **Incremental**: API cursor-based (`/incremental/tickets/cursor.json`)
 - **Tickets deletados**: Marca `zd_deleted_at` e não exibe em tela
 - **Tickets mesclados**: Oculta tickets com tag `closed_by_merged`
+- **Prazo de entrega**: Sincroniza `due_at` do Zendesk (tickets tipo "task"); preserva prazo definido localmente quando Zendesk não envia o campo
 - **Filtros**: `ZENDESK_FILTER_REQUESTER_EMAILS`, `ZENDESK_EXCLUDE_STATUSES`
 - **Scheduler**: Sync a cada 10 min; users/orgs a cada hora
 - **Sem alteração**: Tickets com `zd_updated_at` igual não disparam FetchTicketCommentsJob nem `ai_needs_refresh`
 
 ### 3. Listagem de Tickets
 
-- **Ordenação**: Por ID, Subject, Status, Priority, Created, Updated, Ordem
+- **Ordenação**: Por ID, Subject, Status, Priority, Created, Updated, Ordem, **Prazo (due_at)**
 - **Ordem customizada**: Por usuário requisitante — agrupa por requester, sequência dentro de cada requester; drag-and-drop para priorizar (tabela `ticket_order`)
 - **Novos tickets sincronizados**: Recebem automaticamente o próximo número da sequência do seu requester
 - **Paginação**: 100 por página
 - **Ordem padrão**: Por sequência (Ordem) ascendente
-- **Filtros**: Search, Status, Priority, From/To, Organização (org)
-- **Colunas**: Ordem, ID, Requester, Organização (admin/colaborador), Subject, Status, Priority, Category, Severity, Pending, Created, Updated, Age
+- **Filtros**: Search, Status, Priority, From/To, Organização (org), **Atrasados**, **Sem prazo definido**, **Prazo de/até** (admin/colaborador)
+- **Colunas**: Ordem, ID, Requester, Organização (admin/colaborador), Subject, Status, Priority, Category, Severity, Pending, Created, Updated, **Prazo**, Age
+- **Prazo**: Badge vermelho para atrasados; badge amarelo quando faltam ≤2 dias; data formatada ou "—" quando vazio
 - **Tooltip**: Resumo IA ao passar o mouse (hover 1s)
 
-### 4. Seções
+### 4. Criação de Tickets (cliente)
+
+- **Formulário**: Assunto, Descrição, Prioridade (opcional), **Prazo de entrega (opcional)**, Anexos
+- **Prazo**: Se informado, é gravado localmente após o sync do ticket
+
+### 5. Seções
 
 - **Tickets ativos**: new, open, pending, hold
 - **Solved/Closed**: Tabela separada abaixo (exclui mesclados e deletados)
 
-### 5. Detalhe do Ticket
+### 6. Detalhe do Ticket
 
 - **Pessoas e organização** (admin/colaborador): Requester, Submitter, Assignee, Organização, Colaboradores (CC)
-- **Cabeçalho**: ID, Subject, Status, Created (ZD), Updated (ZD), badge de idade (Fresh/Recent/Old/Too old)
+- **Cabeçalho**: ID, Subject, Status, Created (ZD), Updated (ZD), **Prazo de entrega** (com badge de atraso quando aplicável), badge de idade (Fresh/Recent/Old/Too old)
+- **Prazo de entrega** (admin/colaborador): Formulário para definir/alterar/remover prazo; sincroniza com Zendesk quando ticket é tipo "task"
 - **AI Summary**: Bullets, perguntas abertas, ações necessárias, next_action, pending_action
 - **Pendência**: Us (nossa vez), Cust (cliente), Close (pode fechar)
 - **Previsões**: IA (read-only) e interna (editável)
 - **Tickets similares**: Com score e média de resolução
 - **Conversa**: Comentários com attachments (imagens proxy)
 
-### 6. Ações
+### 7. Ações
 
 - **Atualizar IA**: Refresh de comentários + resumo (apenas admin)
 - **Aplicar tags**: Tags sugeridas pela IA
 - **Salvar previsão interna**: Esforço min/max em horas
+- **Salvar prazo de entrega**: Define ou altera data de prazo (admin/colaborador); remove prazo com botão "Remover prazo"
 
-### 7. IA (OpenAI)
+### 8. IA (OpenAI)
 
 - **Modelo**: GPT-4o-mini (configurável)
 - **Embeddings**: text-embedding-3-small
@@ -188,6 +197,7 @@ Zendesk/
 | POST | `/tickets/{ticket}/refresh-ai` | Refresh IA (apenas admin) |
 | POST | `/tickets/{ticket}/apply-tags` | Aplicar tags sugeridas |
 | POST | `/tickets/{ticket}/internal-effort` | Salvar previsão interna |
+| POST | `/tickets/{ticket}/deadline` | Salvar/remover prazo de entrega (admin/colaborador) |
 | POST | `/tickets/reorder` | Reordenar tickets |
 
 ---
