@@ -354,7 +354,7 @@ class TicketController extends Controller
         ]);
     }
 
-    public function updateInternalEffort(Request $request, ZdTicket $ticket): RedirectResponse
+    public function updateInternalEffort(Request $request, ZdTicket $ticket): JsonResponse|RedirectResponse
     {
         $this->authorize('view', $ticket);
 
@@ -364,8 +364,9 @@ class TicketController extends Controller
 
         $analysis = $ticket->analysis()->latest()->first();
         if (! $analysis) {
-            return redirect()->route('tickets.show', $ticket)
-                ->with('error', 'Nenhuma análise IA encontrada.');
+            return $request->expectsJson()
+                ? response()->json(['success' => false, 'message' => 'Nenhuma análise IA encontrada.'], 422)
+                : redirect()->route('tickets.show', $ticket)->with('error', 'Nenhuma análise IA encontrada.');
         }
 
         $min = $request->input('internal_effort_min');
@@ -376,8 +377,9 @@ class TicketController extends Controller
             'internal_effort_max' => $max !== '' && $max !== null ? (float) $max : null,
         ]);
 
-        return redirect()->route('tickets.show', $ticket)
-            ->with('success', 'Previsão interna atualizada.');
+        return $request->expectsJson()
+            ? response()->json(['success' => true])
+            : redirect()->route('tickets.show', $ticket)->with('success', 'Previsão interna atualizada.');
     }
 
     public function reorder(ReorderTicketsRequest $request, TicketWorkflowService $workflow): JsonResponse|RedirectResponse
@@ -537,7 +539,7 @@ class TicketController extends Controller
             ->with('success', 'Status atualizado.');
     }
 
-    public function updateDeadline(UpdateDeadlineRequest $request, ZdTicket $ticket, ZendeskClient $client): RedirectResponse
+    public function updateDeadline(UpdateDeadlineRequest $request, ZdTicket $ticket, ZendeskClient $client): JsonResponse|RedirectResponse
     {
         $this->authorize('view', $ticket);
 
@@ -561,8 +563,10 @@ class TicketController extends Controller
             }
         }
 
-        return redirect()->route('tickets.show', $ticket)
-            ->with('success', $dueAt ? 'Prazo de entrega atualizado.' : 'Prazo de entrega removido.');
+        return $request->expectsJson()
+            ? response()->json(['success' => true])
+            : redirect()->route('tickets.show', $ticket)
+                ->with('success', $dueAt ? 'Prazo de entrega atualizado.' : 'Prazo de entrega removido.');
     }
 
     public function updatePendingAction(UpdatePendingActionRequest $request, ZdTicket $ticket, TicketWorkflowService $workflow): RedirectResponse

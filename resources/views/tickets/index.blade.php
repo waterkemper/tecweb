@@ -240,23 +240,57 @@
             <td class="text-sm">{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('d/m/y H:i') ?? '-' }}</td>
             <td class="text-sm">{{ ($ticket->zd_updated_at ?? $ticket->updated_at)?->format('d/m/y H:i') ?? '-' }}</td>
             <td class="text-sm">
-                @if ($ticket->due_at)
-                    @if ($ticket->is_overdue)
-                        <span class="badge" style="background:#fee2e2;color:#991b1b;" title="{{ $ticket->days_overdue }} dias de atraso">{{ $ticket->due_at->format('d/m/y') }} (atrasado)</span>
-                    @elseif ($ticket->days_overdue !== null && $ticket->days_overdue >= -2 && $ticket->days_overdue < 0)
-                        <span class="badge" style="background:#fef3c7;color:#92400e;" title="Faltam {{ abs($ticket->days_overdue) }} dias">{{ $ticket->due_at->format('d/m/y') }}</span>
+                @if (!$isCliente)
+                <span class="editable-deadline cursor-pointer" title="Duplo clique para editar"
+                    data-ticket-id="{{ $ticket->id }}"
+                    data-due-at="{{ $ticket->due_at?->format('Y-m-d') ?? '' }}"
+                    data-min-date="{{ ($ticket->zd_created_at ?? $ticket->created_at)?->format('Y-m-d') ?? now()->format('Y-m-d') }}"
+                    data-url="{{ route('tickets.deadline.update', $ticket) }}">
+                    @if ($ticket->due_at)
+                        @if ($ticket->is_overdue)
+                            <span class="badge" style="background:#fee2e2;color:#991b1b;" title="{{ $ticket->days_overdue }} dias de atraso">{{ $ticket->due_at->format('d/m/y') }} (atrasado)</span>
+                        @elseif ($ticket->days_overdue !== null && $ticket->days_overdue >= -2 && $ticket->days_overdue < 0)
+                            <span class="badge" style="background:#fef3c7;color:#92400e;" title="Faltam {{ abs($ticket->days_overdue) }} dias">{{ $ticket->due_at->format('d/m/y') }}</span>
+                        @else
+                            {{ $ticket->due_at->format('d/m/y') }}
+                        @endif
                     @else
-                        {{ $ticket->due_at->format('d/m/y') }}
+                        —
                     @endif
+                </span>
                 @else
-                    —
+                    @if ($ticket->due_at)
+                        @if ($ticket->is_overdue)
+                            <span class="badge" style="background:#fee2e2;color:#991b1b;" title="{{ $ticket->days_overdue }} dias de atraso">{{ $ticket->due_at->format('d/m/y') }} (atrasado)</span>
+                        @elseif ($ticket->days_overdue !== null && $ticket->days_overdue >= -2 && $ticket->days_overdue < 0)
+                            <span class="badge" style="background:#fef3c7;color:#92400e;" title="Faltam {{ abs($ticket->days_overdue) }} dias">{{ $ticket->due_at->format('d/m/y') }}</span>
+                        @else
+                            {{ $ticket->due_at->format('d/m/y') }}
+                        @endif
+                    @else
+                        —
+                    @endif
                 @endif
             </td>
             <td class="text-sm text-right">
-                @if ($hoursMax > 0)
-                    {{ number_format($hoursMax, 1) }}h
+                @if (!$isCliente && $analysis)
+                <span class="editable-hours cursor-pointer" title="Duplo clique para editar"
+                    data-ticket-id="{{ $ticket->id }}"
+                    data-hours-max="{{ $hoursMax > 0 ? number_format($hoursMax, 1, '.', '') : '' }}"
+                    data-hours-min="{{ $analysis->internal_effort_min !== null ? number_format((float)$analysis->internal_effort_min, 1, '.', '') : '' }}"
+                    data-url="{{ route('tickets.internal-effort', $ticket) }}">
+                    @if ($hoursMax > 0)
+                        {{ number_format($hoursMax, 1) }}h
+                    @else
+                        —
+                    @endif
+                </span>
                 @else
-                    —
+                    @if ($hoursMax > 0)
+                        {{ number_format($hoursMax, 1) }}h
+                    @else
+                        —
+                    @endif
                 @endif
             </td>
             <td>
@@ -280,11 +314,9 @@
         @endforeach
     </tbody>
 </table>
-@if ($totalHours > 0)
-<div class="mt-2 py-2 px-3 bg-slate-100 rounded-b text-sm font-medium text-slate-700">
+<div class="mt-2 py-2 px-3 bg-slate-100 rounded-b text-sm font-medium text-slate-700" id="total-hours-footer">
     Total previsão (página atual): {{ number_format($totalHours, 1) }}h
 </div>
-@endif
 
 <div class="mt-4">
     {{ $tickets->links() }}
@@ -379,9 +411,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
     function showTooltip(evt, content) {
+        if (window.inlineEditActive) return;
         clearTimeout(hideTimeout);
         clearTimeout(showTimeout);
         showTimeout = setTimeout(function() {
+            if (window.inlineEditActive) return;
             tooltip.innerHTML = content;
             tooltip.style.display = 'block';
             tooltip.style.visibility = 'visible';
@@ -410,6 +444,13 @@ document.addEventListener('DOMContentLoaded', function() {
             tooltip.style.opacity = '';
         }, 100);
     }
+    window.hideAiPreviewTooltip = function() {
+        clearTimeout(showTimeout);
+        clearTimeout(hideTimeout);
+        tooltip.style.display = 'none';
+        tooltip.style.visibility = '';
+        tooltip.style.opacity = '';
+    };
 
     function decodeHtmlEntities(str) {
         return String(str)
@@ -422,6 +463,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     rows.forEach(function(row) {
         row.addEventListener('mouseenter', function(evt) {
+            if (window.inlineEditActive) return;
             try {
                 let raw = this.getAttribute('data-ai-preview') || '{}';
                 raw = decodeHtmlEntities(raw);
@@ -453,6 +495,173 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+
+@if ($tickets->isNotEmpty() && !$isCliente)
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    function formatDateBr(ymd) {
+        if (!ymd) return '—';
+        const p = ymd.split('-');
+        return p[2] + '/' + p[1] + '/' + p[0].slice(-2);
+    }
+
+    function getDaysOverdue(ymd) {
+        if (!ymd) return null;
+        const d = new Date(ymd + 'T12:00:00');
+        const now = new Date();
+        now.setHours(12, 0, 0, 0);
+        return Math.round((now - d) / 86400000);
+    }
+
+    function renderDeadlineDisplay(ymd) {
+        if (!ymd) return '—';
+        const days = getDaysOverdue(ymd);
+        const fmt = formatDateBr(ymd);
+        if (days > 0) return '<span class="badge" style="background:#fee2e2;color:#991b1b;" title="' + days + ' dias de atraso">' + fmt + ' (atrasado)</span>';
+        if (days >= -2 && days <= 0) return '<span class="badge" style="background:#fef3c7;color:#92400e;" title="Faltam ' + Math.abs(days) + ' dias">' + fmt + '</span>';
+        return fmt;
+    }
+
+    function updateTotalHours() {
+        const footer = document.getElementById('total-hours-footer');
+        if (!footer) return;
+        let total = 0;
+        document.querySelectorAll('.editable-hours').forEach(function(el) {
+            const v = parseFloat(el.getAttribute('data-hours-max') || 0);
+            if (!isNaN(v)) total += v;
+        });
+        footer.textContent = 'Total previsão (página atual): ' + total.toFixed(1) + 'h';
+    }
+
+    document.querySelectorAll('.editable-deadline').forEach(function(span) {
+        span.addEventListener('dblclick', function(evt) {
+            if (evt.target.tagName === 'INPUT') return;
+            evt.preventDefault();
+            evt.stopPropagation();
+            const ticketId = this.getAttribute('data-ticket-id');
+            const dueAt = this.getAttribute('data-due-at') || '';
+            const minDate = this.getAttribute('data-min-date') || '';
+            const url = this.getAttribute('data-url');
+            const oldHtml = this.innerHTML;
+
+            const input = document.createElement('input');
+            input.type = 'date';
+            input.value = dueAt;
+            input.min = minDate;
+            input.className = 'w-28 px-2 py-1 text-sm border border-slate-300 rounded';
+            input.style.fontSize = 'inherit';
+
+            this.innerHTML = '';
+            this.appendChild(input);
+            input.focus();
+            window.inlineEditActive = true;
+            if (window.hideAiPreviewTooltip) window.hideAiPreviewTooltip();
+
+            function restore() {
+                span.innerHTML = oldHtml;
+                span.addEventListener('click', arguments.callee);
+            }
+
+            function save() {
+                const val = input.value.trim();
+                const formData = new FormData();
+                formData.append('_token', csrfToken);
+                if (val) formData.append('due_at', val);
+                else formData.append('clear', '1');
+
+                fetch(url, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function(r) { return r.json();                 }).then(function(data) {
+                    window.inlineEditActive = false;
+                    if (data.success) {
+                        span.setAttribute('data-due-at', val);
+                        span.innerHTML = renderDeadlineDisplay(val || null);
+                    } else {
+                        span.innerHTML = oldHtml;
+                        if (data.message) alert(data.message);
+                    }
+                }).catch(function() {
+                    window.inlineEditActive = false;
+                    span.innerHTML = oldHtml;
+                });
+            }
+
+            input.addEventListener('blur', function() { setTimeout(save, 10); });
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { input.blur(); }
+                if (e.key === 'Escape') { window.inlineEditActive = false; span.innerHTML = oldHtml; }
+            });
+        });
+    });
+
+    document.querySelectorAll('.editable-hours').forEach(function(span) {
+        span.addEventListener('dblclick', function(evt) {
+            if (evt.target.tagName === 'INPUT') return;
+            evt.preventDefault();
+            evt.stopPropagation();
+            const ticketId = this.getAttribute('data-ticket-id');
+            const hoursMax = this.getAttribute('data-hours-max') || '';
+            const hoursMin = this.getAttribute('data-hours-min') || '';
+            const url = this.getAttribute('data-url');
+            const oldHtml = this.innerHTML;
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = '0.5';
+            input.min = '0';
+            input.value = hoursMax;
+            input.placeholder = '—';
+            input.className = 'w-16 px-2 py-1 text-sm text-right border border-slate-300 rounded';
+            input.style.fontSize = 'inherit';
+
+            this.innerHTML = '';
+            this.appendChild(input);
+            input.focus();
+            window.inlineEditActive = true;
+            if (window.hideAiPreviewTooltip) window.hideAiPreviewTooltip();
+
+            function save() {
+                const val = input.value.trim();
+                const formData = new FormData();
+                formData.append('_token', csrfToken);
+                formData.append('internal_effort_min', hoursMin);
+                formData.append('internal_effort_max', val || '');
+
+                fetch(url, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    window.inlineEditActive = false;
+                    if (data.success) {
+                        const num = val ? parseFloat(val) : 0;
+                        span.setAttribute('data-hours-max', val);
+                        span.textContent = num > 0 ? num.toFixed(1) + 'h' : '—';
+                        updateTotalHours();
+                    } else {
+                        span.innerHTML = oldHtml;
+                        if (data.message) alert(data.message);
+                    }
+                }).catch(function() {
+                    window.inlineEditActive = false;
+                    span.innerHTML = oldHtml;
+                });
+            }
+
+            input.addEventListener('blur', function() { setTimeout(save, 10); });
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { input.blur(); }
+                if (e.key === 'Escape') { window.inlineEditActive = false; span.innerHTML = oldHtml; }
+            });
+        });
+    });
+});
+</script>
+@endif
 
 @if ($tickets->isNotEmpty() && ($sort ?? '') === 'sequence' && auth()->user())
 <meta name="reorder-url" content="{{ route('tickets.reorder') }}">

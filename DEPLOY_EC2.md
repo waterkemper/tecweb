@@ -257,8 +257,9 @@ docker-compose -f docker-compose.prod.yml restart app
 cd /var/www/tecdesk
 git pull
 docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml exec app php artisan migrate --force
 ```
+
+O **migrate** roda automaticamente no startup do container (via [docker/entrypoint.sh](docker/entrypoint.sh)), portanto não é necessário executá-lo manualmente após o build.
 
 ---
 
