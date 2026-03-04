@@ -51,6 +51,7 @@
             </div>
             <div class="flex items-center gap-4">
                 <span class="text-sm text-gray-600">{{ auth()->user()?->name }} ({{ auth()->user()?->role }})</span>
+                <a href="{{ route('profile.password') }}" class="text-sm text-gray-600 hover:text-gray-900">Alterar senha</a>
                 <form method="POST" action="{{ route('logout') }}" class="inline">
                     @csrf
                     <button type="submit" class="text-sm text-gray-600 hover:text-gray-900">Sair</button>

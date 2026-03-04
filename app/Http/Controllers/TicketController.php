@@ -31,6 +31,9 @@ class TicketController extends Controller
     {
         $statusFilter = $request->get('status');
         $filters = $request->only(['q', 'status', 'priority', 'category', 'severity', 'tag', 'from', 'to', 'org', 'requester', 'mine']);
+        if ($request->user()?->role === 'cliente' && ! $request->has('mine')) {
+            $filters['mine'] = 1;
+        }
         $sort = $request->get('sort', 'sequence');
         $dir = strtolower($request->get('dir', 'asc')) === 'asc' ? 'asc' : 'desc';
         $allowedSort = ['zd_id', 'subject', 'status', 'priority', 'zd_created_at', 'zd_updated_at', 'sequence'];
@@ -87,12 +90,14 @@ class TicketController extends Controller
     private function buildTicketsQuery(Request $request, ?string $statusFilter, array $filters, string $sort, string $dir, array $allowedSort)
     {
         $user = $request->user();
+        $useMine = ($user?->role === 'cliente' && ! $request->has('mine')) || $request->boolean('mine');
+        $requesterFilter = $useMine && $user?->zd_id ? $user->zd_id : $request->get('requester');
         $query = ZdTicket::query()
             ->visibleToUser($user)
             ->with(['analysis' => fn ($q) => $q->latest()->limit(1), 'ticketOrder', 'requester', 'organization'])
             ->search($request->get('q'))
             ->filterOrg(in_array($user?->role, ['admin', 'colaborador']) ? $request->get('org') : null)
-            ->filterRequester($request->boolean('mine') && $user?->zd_id ? $user->zd_id : $request->get('requester'))
+            ->filterRequester($requesterFilter)
             ->filterPriority($request->get('priority'))
             ->filterCategory($request->get('category'))
             ->filterSeverity($request->get('severity'))
@@ -126,12 +131,14 @@ class TicketController extends Controller
     private function buildResolvedQuery(Request $request, ?string $statusFilter, array $filters)
     {
         $user = $request->user();
+        $useMine = ($user?->role === 'cliente' && ! $request->has('mine')) || $request->boolean('mine');
+        $requesterFilter = $useMine && $user?->zd_id ? $user->zd_id : $request->get('requester');
         $query = ZdTicket::query()
             ->visibleToUser($user)
             ->with(['analysis' => fn ($q) => $q->latest()->limit(1), 'requester', 'organization'])
             ->search($request->get('q'))
             ->filterOrg(in_array($user?->role, ['admin', 'colaborador']) ? $request->get('org') : null)
-            ->filterRequester($request->boolean('mine') && $user?->zd_id ? $user->zd_id : $request->get('requester'))
+            ->filterRequester($requesterFilter)
             ->filterPriority($request->get('priority'))
             ->filterCategory($request->get('category'))
             ->filterSeverity($request->get('severity'))

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\OrganizationController as AdminOrganizationController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\Auth\ChangePasswordController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\DashboardController;
@@ -22,6 +23,9 @@ Route::middleware('guest')->group(function (): void {
 
 Route::middleware('auth')->group(function (): void {
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+
+    Route::get('/profile/password', [ChangePasswordController::class, 'create'])->name('profile.password');
+    Route::post('/profile/password', [ChangePasswordController::class, 'store'])->name('profile.password.update');
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/tickets', [TicketController::class, 'index'])->name('tickets.index');
