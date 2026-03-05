@@ -243,7 +243,11 @@ document.addEventListener('DOMContentLoaded', function() {
             <td class="w-8 text-gray-400" title="{{ $showOrderBtns ? 'Arraste para reordenar' : '' }}">⋮⋮</td>
             <td class="min-w-[6.5rem] text-sm text-gray-600 {{ $showOrderBtns ? 'bg-blue-50' : '' }}">
                 <span class="inline-flex items-center gap-1.5 flex-wrap">
+                    @if ($showOrderBtns && $ticket->ticketOrder?->sequence !== null)
+                    <span class="editable-sequence cursor-pointer" title="Duplo clique para alterar posição">{{ $ticket->ticketOrder->sequence + 1 }}</span>
+                    @else
                     <span>{{ $ticket->ticketOrder?->sequence !== null ? ($ticket->ticketOrder->sequence + 1) : '-' }}</span>
+                    @endif
                     @if ($showOrderBtns)
                     <span class="inline-flex gap-0.5" role="group">
                         @if (!$isFirstInRequester)
@@ -738,10 +742,8 @@ document.addEventListener('DOMContentLoaded', function() {
             seqByRequester[reqId] = (seqByRequester[reqId] || 0) + 1;
             const ordemCell = row.querySelector('td:nth-child(2)');
             if (ordemCell) {
-                const firstChild = ordemCell.firstChild;
-                if (firstChild && firstChild.nodeType === 3) {
-                    firstChild.textContent = seqByRequester[reqId] + ' ';
-                }
+                const numberSpan = ordemCell.querySelector('.editable-sequence') || ordemCell.querySelector('span.inline-flex > span:first-child');
+                if (numberSpan) numberSpan.textContent = seqByRequester[reqId];
             }
         });
     }
@@ -795,6 +797,67 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         sendReorder(newIds);
+    });
+
+    tbody.addEventListener('dblclick', function(evt) {
+        const span = evt.target.closest('.editable-sequence');
+        if (!span) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        const row = span.closest('tr');
+        const rows = getRows();
+        const requesterId = row.dataset.requesterId || '0';
+        const sameRequester = rows.filter(function(r) { return (r.dataset.requesterId || '0') === requesterId; });
+        const maxPos = sameRequester.length;
+        const currentVal = span.textContent.trim();
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = 1;
+        input.max = maxPos;
+        input.value = currentVal;
+        input.className = 'w-12 px-1 py-0.5 text-sm border border-slate-300 rounded';
+        span.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let submitted = false;
+        function restore() {
+            if (submitted || !input.parentNode) return;
+            const newSpan = document.createElement('span');
+            newSpan.className = 'editable-sequence cursor-pointer';
+            newSpan.title = 'Duplo clique para alterar posição';
+            newSpan.textContent = currentVal;
+            input.replaceWith(newSpan);
+        }
+
+        function submit() {
+            const targetPos = parseInt(input.value, 10);
+            if (isNaN(targetPos) || targetPos < 1 || targetPos > maxPos) {
+                alert('Digite um número entre 1 e ' + maxPos + '.');
+                restore();
+                return;
+            }
+            const posInGroup = sameRequester.indexOf(row);
+            if (targetPos === posInGroup + 1) {
+                restore();
+                return;
+            }
+            const others = sameRequester.filter(function(_, i) { return i !== posInGroup; });
+            const reordered = others.slice(0, targetPos - 1).concat([row]).concat(others.slice(targetPos - 1));
+            const before = rows.slice(0, rows.indexOf(sameRequester[0]));
+            const after = rows.slice(rows.indexOf(sameRequester[sameRequester.length - 1]) + 1);
+            const newIds = before.map(function(r) { return r.dataset.ticketId; }).concat(reordered.map(function(r) { return r.dataset.ticketId; }), after.map(function(r) { return r.dataset.ticketId; }));
+            submitted = true;
+            restore();
+            sendReorder(newIds);
+        }
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); submit(); }
+            if (e.key === 'Escape') { submitted = true; restore(); }
+        });
+        input.addEventListener('blur', function() { setTimeout(function() { if (!submitted) restore(); }, 100); });
     });
 
     new Sortable(tbody, {
