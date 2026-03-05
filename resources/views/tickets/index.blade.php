@@ -23,108 +23,155 @@
     $ageLabels = ['too_old' => 'Muito antigo', 'old' => 'Antigo', 'recent' => 'recente', 'fresh' => 'Recente'];
     $isCliente = auth()->user()?->role === 'cliente';
 @endphp
-<form method="GET" class="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-    @if (!empty($sort))
-        <input type="hidden" name="sort" value="{{ $sort }}">
-    @endif
-    @if (!empty($dir))
-        <input type="hidden" name="dir" value="{{ $dir }}">
-    @endif
-    <div class="flex flex-wrap gap-x-5 gap-y-3 items-end">
-        <div class="flex-shrink-0">
-            <label class="block text-sm font-medium text-slate-600 mb-1">Buscar</label>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Assunto, descrição..." class="w-56 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-        </div>
-        <div class="flex-shrink-0">
-            <label class="block text-sm font-medium text-slate-600 mb-1">Status</label>
-            <select name="status" class="w-36 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Todos</option>
-                <option value="new" {{ ($filters['status'] ?? '') === 'new' ? 'selected' : '' }}>Novo</option>
-                <option value="open" {{ ($filters['status'] ?? '') === 'open' ? 'selected' : '' }}>Aberto</option>
-                <option value="pending" {{ ($filters['status'] ?? '') === 'pending' ? 'selected' : '' }}>Pendente</option>
-                <option value="hold" {{ ($filters['status'] ?? '') === 'hold' ? 'selected' : '' }}>Aguardando</option>
-                <option value="solved" {{ ($filters['status'] ?? '') === 'solved' ? 'selected' : '' }}>Resolvido</option>
-                <option value="closed" {{ ($filters['status'] ?? '') === 'closed' ? 'selected' : '' }}>Fechado</option>
-            </select>
-        </div>
-        @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-        <div class="flex-shrink-0">
-            <label class="block text-sm font-medium text-slate-600 mb-1">Organização</label>
-            <select name="org" class="w-44 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Todas</option>
-                @foreach ($organizations ?? [] as $org)
-                    <option value="{{ $org->zd_id }}" {{ ($filters['org'] ?? '') == $org->zd_id ? 'selected' : '' }}>{{ $org->name }}</option>
-                @endforeach
-            </select>
-        </div>
+<div class="mb-6 rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden" id="filters-panel">
+    <form method="GET" id="tickets-filters-form">
+        @if (!empty($sort))
+            <input type="hidden" name="sort" value="{{ $sort }}">
         @endif
-        @if (auth()->user() && ($requesters ?? collect())->isNotEmpty())
-        <div class="flex-shrink-0">
-            <label class="block text-sm font-medium text-slate-600 mb-1">Solicitante</label>
-            <select name="requester" class="w-44 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Todos</option>
-                @foreach ($requesters ?? [] as $req)
-                    <option value="{{ $req->zd_id }}" {{ ($filters['requester'] ?? '') == $req->zd_id ? 'selected' : '' }}>{{ $req->name ?? $req->email ?? "#{$req->zd_id}" }}</option>
-                @endforeach
-            </select>
-        </div>
+        @if (!empty($dir))
+            <input type="hidden" name="dir" value="{{ $dir }}">
         @endif
-        <div class="flex-shrink-0">
-            <label class="block text-sm font-medium text-slate-600 mb-1">Prioridade</label>
-            <select name="priority" class="w-32 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Todos</option>
-                <option value="urgent" {{ ($filters['priority'] ?? '') === 'urgent' ? 'selected' : '' }}>Urgente</option>
-                <option value="high" {{ ($filters['priority'] ?? '') === 'high' ? 'selected' : '' }}>Alta</option>
-                <option value="normal" {{ ($filters['priority'] ?? '') === 'normal' ? 'selected' : '' }}>Normal</option>
-                <option value="low" {{ ($filters['priority'] ?? '') === 'low' ? 'selected' : '' }}>Baixa</option>
-            </select>
-        </div>
-        @if (auth()->user()?->zd_id)
-        <div class="flex-shrink-0 flex items-end">
-            <label class="inline-flex items-center gap-2 px-3 py-2 cursor-pointer">
-                <input type="checkbox" name="mine" value="1" {{ ($filters['mine'] ?? '') ? 'checked' : '' }}
-                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                <span class="text-sm font-medium text-slate-600">Somente criados por mim</span>
-            </label>
-        </div>
-        @endif
-        @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
-        <div class="flex-shrink-0 flex items-end gap-3">
-            <label class="inline-flex items-center gap-2 px-3 py-2 cursor-pointer">
-                <input type="checkbox" name="overdue" value="1" {{ ($filters['overdue'] ?? '') ? 'checked' : '' }}
-                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                <span class="text-sm font-medium text-slate-600">Atrasados</span>
-            </label>
-            <label class="inline-flex items-center gap-2 px-3 py-2 cursor-pointer">
-                <input type="checkbox" name="without_deadline" value="1" {{ ($filters['without_deadline'] ?? '') ? 'checked' : '' }}
-                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                <span class="text-sm font-medium text-slate-600">Sem prazo</span>
-            </label>
-        </div>
-        <div class="flex-shrink-0 flex items-end gap-1">
-            <div>
-                <label class="block text-xs font-medium text-slate-500 mb-0.5">Prazo de</label>
-                <input type="date" name="due_from" value="{{ $filters['due_from'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
+            <div class="flex items-center gap-3 min-h-[44px]">
+                <span class="font-medium text-slate-700">Filtros</span>
+                <button type="button" id="filters-toggle" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors min-h-[44px]" aria-expanded="true" aria-controls="filters-panel-body">
+                    <span id="filters-toggle-text">Ocultar filtros</span>
+                    <svg id="filters-chevron" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
             </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-500 mb-0.5">Prazo até</label>
-                <input type="date" name="due_to" value="{{ $filters['due_to'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <button type="submit" class="px-4 py-2 min-h-[44px] bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm">Filtrar</button>
+        </div>
+        <div id="filters-panel-body" class="p-4 bg-white overflow-hidden transition-[max-height] duration-300 ease-in-out" style="max-height: 1200px;">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 mb-4">
+                <div class="min-w-0 sm:col-span-2 xl:col-span-1">
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Buscar</label>
+                    <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Assunto, descrição..." class="w-full min-w-0 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="min-w-0">
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Status</label>
+                    <select name="status" class="w-full min-w-0 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Todos</option>
+                        <option value="new" {{ ($filters['status'] ?? '') === 'new' ? 'selected' : '' }}>Novo</option>
+                        <option value="open" {{ ($filters['status'] ?? '') === 'open' ? 'selected' : '' }}>Aberto</option>
+                        <option value="pending" {{ ($filters['status'] ?? '') === 'pending' ? 'selected' : '' }}>Pendente</option>
+                        <option value="hold" {{ ($filters['status'] ?? '') === 'hold' ? 'selected' : '' }}>Aguardando</option>
+                        <option value="solved" {{ ($filters['status'] ?? '') === 'solved' ? 'selected' : '' }}>Resolvido</option>
+                        <option value="closed" {{ ($filters['status'] ?? '') === 'closed' ? 'selected' : '' }}>Fechado</option>
+                    </select>
+                </div>
+                @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+                <div class="min-w-0">
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Organização</label>
+                    <select name="org" class="w-full min-w-0 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Todas</option>
+                        @foreach ($organizations ?? [] as $org)
+                            <option value="{{ $org->zd_id }}" {{ ($filters['org'] ?? '') == $org->zd_id ? 'selected' : '' }}>{{ $org->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                @endif
+                @if (auth()->user() && ($requesters ?? collect())->isNotEmpty())
+                <div class="min-w-0">
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Solicitante</label>
+                    <select name="requester" class="w-full min-w-0 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Todos</option>
+                        @foreach ($requesters ?? [] as $req)
+                            <option value="{{ $req->zd_id }}" {{ ($filters['requester'] ?? '') == $req->zd_id ? 'selected' : '' }}>{{ $req->name ?? $req->email ?? "#{$req->zd_id}" }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                @endif
+                <div class="min-w-0">
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Prioridade</label>
+                    <select name="priority" class="w-full min-w-0 px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Todos</option>
+                        <option value="urgent" {{ ($filters['priority'] ?? '') === 'urgent' ? 'selected' : '' }}>Urgente</option>
+                        <option value="high" {{ ($filters['priority'] ?? '') === 'high' ? 'selected' : '' }}>Alta</option>
+                        <option value="normal" {{ ($filters['priority'] ?? '') === 'normal' ? 'selected' : '' }}>Normal</option>
+                        <option value="low" {{ ($filters['priority'] ?? '') === 'low' ? 'selected' : '' }}>Baixa</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-x-6 gap-y-3 items-center mb-4">
+                @if (auth()->user()?->zd_id)
+                <label class="inline-flex items-center gap-2 min-h-[44px] px-3 py-2 cursor-pointer rounded-md hover:bg-slate-50">
+                    <input type="checkbox" name="mine" value="1" {{ ($filters['mine'] ?? '') ? 'checked' : '' }}
+                        class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm font-medium text-slate-600">Somente criados por mim</span>
+                </label>
+                @endif
+                @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+                <label class="inline-flex items-center gap-2 min-h-[44px] px-3 py-2 cursor-pointer rounded-md hover:bg-slate-50">
+                    <input type="checkbox" name="overdue" value="1" {{ ($filters['overdue'] ?? '') ? 'checked' : '' }}
+                        class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm font-medium text-slate-600">Atrasados</span>
+                </label>
+                <label class="inline-flex items-center gap-2 min-h-[44px] px-3 py-2 cursor-pointer rounded-md hover:bg-slate-50">
+                    <input type="checkbox" name="without_deadline" value="1" {{ ($filters['without_deadline'] ?? '') ? 'checked' : '' }}
+                        class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm font-medium text-slate-600">Sem prazo</span>
+                </label>
+                @endif
+            </div>
+            <div class="flex flex-wrap gap-4 items-end">
+                @if (auth()->user() && in_array(auth()->user()->role, ['admin', 'colaborador']))
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-0.5">Prazo de</label>
+                    <input type="date" name="due_from" value="{{ $filters['due_from'] ?? '' }}" class="min-w-[7.5rem] px-2 py-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-0.5">Prazo até</label>
+                    <input type="date" name="due_to" value="{{ $filters['due_to'] ?? '' }}" class="min-w-[7.5rem] px-2 py-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                @endif
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-0.5">De</label>
+                    <input type="date" name="from" value="{{ $filters['from'] ?? '' }}" class="min-w-[7.5rem] px-2 py-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-0.5">Até</label>
+                    <input type="date" name="to" value="{{ $filters['to'] ?? '' }}" class="min-w-[7.5rem] px-2 py-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
             </div>
         </div>
-        @endif
-        <div class="flex-shrink-0 flex items-end gap-1">
-            <div>
-                <label class="block text-xs font-medium text-slate-500 mb-0.5">De</label>
-                <input type="date" name="from" value="{{ $filters['from'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-500 mb-0.5">Até</label>
-                <input type="date" name="to" value="{{ $filters['to'] ?? '' }}" class="w-[7.5rem] px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-        </div>
-        <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm">Filtrar</button>
-    </div>
-</form>
+    </form>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var STORAGE_KEY = 'ticketsFiltersVisible';
+    var panel = document.getElementById('filters-panel-body');
+    var toggle = document.getElementById('filters-toggle');
+    var toggleText = document.getElementById('filters-toggle-text');
+    var chevron = document.getElementById('filters-chevron');
+    if (!panel || !toggle) return;
+
+    function isMobile() { return window.innerWidth < 768; }
+    function getStored() {
+        var stored = localStorage.getItem(STORAGE_KEY);
+        if (stored !== null) return stored === 'true';
+        return !isMobile();
+    }
+    function setStored(val) { localStorage.setItem(STORAGE_KEY, val ? 'true' : 'false'); }
+
+    function applyState(visible) {
+        panel.style.maxHeight = visible ? '1200px' : '0';
+        panel.style.overflow = 'hidden';
+        panel.style.padding = visible ? '' : '0';
+        toggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
+        toggleText.textContent = visible ? 'Ocultar filtros' : 'Mostrar filtros';
+        chevron.style.transform = visible ? 'rotate(0deg)' : 'rotate(-90deg)';
+    }
+
+    var visible = getStored();
+    applyState(visible);
+
+    toggle.addEventListener('click', function() {
+        visible = !visible;
+        setStored(visible);
+        applyState(visible);
+    });
+});
+</script>
 
 @if ($tickets->isNotEmpty())
 <h2 class="text-lg font-semibold mb-3">Tickets ativos</h2>
@@ -134,17 +181,17 @@
     Modo ordenação: arraste as linhas ou use os botões ↑↓
 </div>
 @endif
-<table>
+<div class="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+<table class="min-w-[900px] w-full">
     <thead>
         <tr>
-            <th class="w-12"></th>
-            <th><a href="{{ $sortUrl('sequence') }}" class="text-blue-600 hover:underline">Ordem{{ $sortIcon('sequence') }}</a></th>
+            <th class="w-8"></th>
+            <th class="min-w-[6.5rem]"><a href="{{ $sortUrl('sequence') }}" class="text-blue-600 hover:underline">Ordem{{ $sortIcon('sequence') }}</a></th>
             <th><a href="{{ $sortUrl('zd_id') }}" class="text-blue-600 hover:underline">ID{{ $sortIcon('zd_id') }}</a></th>
             <th>Solicitante</th>
             <th>Organização</th>
             <th><a href="{{ $sortUrl('subject') }}" class="text-blue-600 hover:underline">Assunto{{ $sortIcon('subject') }}</a></th>
             <th><a href="{{ $sortUrl('status') }}" class="text-blue-600 hover:underline">Status{{ $sortIcon('status') }}</a></th>
-            <th><a href="{{ $sortUrl('priority') }}" class="text-blue-600 hover:underline">Prioridade{{ $sortIcon('priority') }}</a></th>
             @if (!$isCliente)
             <th>Categoria</th>
             @endif
@@ -193,26 +240,27 @@
             $showOrderBtns = auth()->user() && ($sort ?? '') === 'sequence';
         @endphp
         <tr class="{{ $rowClass }} @if ($showOrderBtns) sortable-row cursor-grab @endif ticket-row" data-ticket-id="{{ $ticket->id }}" data-requester-id="{{ $reqId }}" data-ai-preview="{{ e($aiPreview) }}">
-            <td class="text-gray-400" title="{{ $showOrderBtns ? 'Arraste para reordenar' : '' }}">⋮⋮</td>
-            <td class="text-sm text-gray-600 {{ $showOrderBtns ? 'bg-blue-50' : '' }}">
-                {{ $ticket->ticketOrder?->sequence !== null ? ($ticket->ticketOrder->sequence + 1) : '-' }}
-                @if ($showOrderBtns)
-                <span class="ml-1 inline-flex gap-0.5 items-center" role="group">
-                    @if (!$isFirstInRequester)
-                    <button type="button" class="order-btn order-topo px-1.5 py-0.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 shadow-sm" title="Mover para topo" data-action="topo">↑ Topo</button>
-                    @endif
-                    @if (!$isLastInRequester)
-                    <button type="button" class="order-btn order-fundo px-1.5 py-0.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 shadow-sm" title="Mover para fundo" data-action="fundo">↓ Fundo</button>
+            <td class="w-8 text-gray-400" title="{{ $showOrderBtns ? 'Arraste para reordenar' : '' }}">⋮⋮</td>
+            <td class="min-w-[6.5rem] text-sm text-gray-600 {{ $showOrderBtns ? 'bg-blue-50' : '' }}">
+                <span class="inline-flex items-center gap-1.5 flex-wrap">
+                    <span>{{ $ticket->ticketOrder?->sequence !== null ? ($ticket->ticketOrder->sequence + 1) : '-' }}</span>
+                    @if ($showOrderBtns)
+                    <span class="inline-flex gap-0.5" role="group">
+                        @if (!$isFirstInRequester)
+                        <button type="button" class="order-btn order-topo p-1.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 transition-colors" title="Mover para topo" data-action="topo"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg></button>
+                        @endif
+                        @if (!$isLastInRequester)
+                        <button type="button" class="order-btn order-fundo p-1.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 transition-colors" title="Mover para fim da lista" data-action="fundo"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></button>
+                        @endif
+                    </span>
                     @endif
                 </span>
-                @endif
             </td>
             <td><a href="{{ route('tickets.show', $ticket) }}" class="text-blue-600 hover:underline">#{{ $ticket->zd_id }}</a></td>
             <td class="text-sm">{{ $ticket->requester?->name ?? $ticket->requester?->email ?? '-' }}</td>
             <td class="text-sm">{{ $ticket->organization?->name ?? '-' }}</td>
             <td>{{ Str::limit($ticket->subject, 60) }}</td>
             <td><span class="badge badge-{{ $ticket->status }}">{{ $statusLabels[$ticket->status] ?? $ticket->status }}</span></td>
-            <td>{{ $priorityLabels[$ticket->priority] ?? $ticket->priority ?? '-' }}</td>
             @if (!$isCliente)
             <td>{{ $ticket->analysis->first()?->category ?? '-' }}</td>
             @endif
@@ -314,6 +362,7 @@
         @endforeach
     </tbody>
 </table>
+</div>
 <div class="mt-2 py-2 px-3 bg-slate-100 rounded-b text-sm font-medium text-slate-700" id="total-hours-footer">
     Total previsão (página atual): {{ number_format($totalHours, 1) }}h
 </div>
@@ -328,7 +377,8 @@
 @if ($resolvedTickets)
 <div class="mt-10 pt-8 border-t border-gray-200">
     <h2 class="text-lg font-semibold mb-3 text-gray-600">Resolvidos / Fechados</h2>
-    <table class="opacity-90">
+    <div class="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+    <table class="opacity-90 min-w-[700px] w-full">
         <thead>
             <tr>
                 <th>ID</th>
@@ -336,7 +386,6 @@
                 <th>Organização</th>
                 <th>Assunto</th>
                 <th>Status</th>
-                <th>Prioridade</th>
                 @if (!$isCliente)
                 <th>Categoria</th>
                 @endif
@@ -372,7 +421,6 @@
                 <td class="text-sm">{{ $ticket->organization?->name ?? '-' }}</td>
                 <td>{{ Str::limit($ticket->subject, 60) }}</td>
                 <td><span class="badge badge-{{ $ticket->status }}">{{ $statusLabels[$ticket->status] ?? $ticket->status }}</span></td>
-                <td>{{ $priorityLabels[$ticket->priority] ?? $ticket->priority ?? '-' }}</td>
                 @if (!$isCliente)
                 <td>{{ $ticket->analysis->first()?->category ?? '-' }}</td>
                 @endif
@@ -389,11 +437,12 @@
             </tr>
             @empty
             <tr>
-                <td colspan="{{ $isCliente ? 10 : 11 }}" class="text-center text-gray-500 py-4">Nenhum ticket resolvido/fechado.</td>
+                <td colspan="{{ $isCliente ? 9 : 10 }}" class="text-center text-gray-500 py-4">Nenhum ticket resolvido/fechado.</td>
             </tr>
             @endforelse
         </tbody>
     </table>
+    </div>
 
     <div class="mt-4">
         {{ $resolvedTickets->links() }}

@@ -71,7 +71,7 @@ class ZdTicket extends Model
 
     public function comments(): HasMany
     {
-        return $this->hasMany(ZdTicketComment::class, 'ticket_id')->orderBy('created_at');
+        return $this->hasMany(ZdTicketComment::class, 'ticket_id')->orderByDesc('created_at');
     }
 
     public function analysis(): HasMany

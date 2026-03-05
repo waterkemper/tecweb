@@ -12,7 +12,9 @@
     @endif
     <style>
         body { font-family: system-ui, sans-serif; }
-        .container { max-width: 1280px; margin: 0 auto; padding: 1rem 2rem; }
+        .container { width: 100%; max-width: 1920px; margin: 0 auto; padding: 1rem 1rem; }
+        @media (min-width: 640px) { .container { padding: 1rem 1.5rem; } }
+        @media (min-width: 1024px) { .container { padding: 1rem 2rem; } }
         nav { display: flex; gap: 1.5rem; padding: 1rem 0; border-bottom: 1px solid #e5e7eb; }
         nav a { color: #374151; text-decoration: none; }
         nav a:hover { color: #111827; }
